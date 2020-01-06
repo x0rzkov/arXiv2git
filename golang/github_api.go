@@ -3,10 +3,25 @@ package main
 import (
 	// "fmt"
 	"context"
+	"time"
 
 	"github.com/google/go-github/v28/github"
 	// "gopkg.in/fatih/set.v0"
 )
+
+func getEntries(client *github.Client, owner, name, branch string, recursive bool) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tree, _, err := client.Git.GetTree(ctx, owner, name, branch, recursive)
+	if err != nil {
+		return nil, err
+	}
+	var entries []string
+	for _, entry := range tree.Entries {
+		entries = append(entries, *entry.Path)
+	}
+	return entries, nil
+}
 
 func getAllRepositories(client *github.Client, organization string) ([]*github.Repository, error) {
 	var (

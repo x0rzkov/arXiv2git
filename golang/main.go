@@ -5,14 +5,12 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"time"
 
-	"github.com/austinorth/flag"
 	"github.com/google/go-github/v28/github"
 	"github.com/gregjones/httpcache"
 	"github.com/gregjones/httpcache/diskcache"
@@ -20,42 +18,85 @@ import (
 	"github.com/nozzle/throttler"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
+	"github.com/spf13/pflag"
 	"gopkg.in/src-d/go-billy.v4"
 	"gopkg.in/src-d/go-billy.v4/memfs"
 	"gopkg.in/src-d/go-git.v4"
 	"gopkg.in/src-d/go-git.v4/plumbing/transport"
 	"gopkg.in/src-d/go-git.v4/storage/memory"
+	"github.com/x0rzkov/go-vcsurl"
+	ghttp "gopkg.in/src-d/go-git.v4/plumbing/transport/http"
 )
 
-//  go run github.go -token=02406a1e4eeab7ee947329f2c9b6ed6c9a81549d -query=arxiv
-
-func generateDateRange(query string, startYear, endYear int) (queries []string) {
-	// for curYear := startYear; curYear >= startYear; curYear++ {
-	for curYear := endYear; curYear >= startYear; curYear-- {
-		log.Println("curYear", curYear, "endYear", endYear, "startYear", startYear)
-		dateRange := fmt.Sprintf("created:%d-01-01..%d-12-31", curYear, curYear)
-		queries = append(queries, fmt.Sprintf("%s %s", query, dateRange))
-	}
-	return
-}
+var (
+	logLevelStr  string
+	token         string
+	query string
+	pattern string
+	debug  bool
+	httpTimeout  time.Duration
+)
 
 func main() {
-	token := flag.String("token", "", "Personal/Oauth2 github token")
-	query := flag.String("query", "", "Query")
-	flag.Parse()
+	pflag.StringVarP(&logLevelStr, "log-level", "v", "info", "Logging level.")
+	pflag.StringVarP(&token, "token", "t", "", "Github personal token")
+	pflag.StringVarP(&query, "query", "q", "", "query")
+	pflag.StringVarP(&pattern, "pattern", "p", "", "pattern (eg. Dockerfile)")
+	pflag.BoolVarP(&debug, "debug", "d", false, "debug mode")
+	pflag.DurationVar(&httpTimeout, "http-timeout", 5*time.Second, "Timeout for HTTP Requests.")
+	pflag.Args()
+
+	logLevel, err := logrus.ParseLevel(logLevelStr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Can not parse log level %q: %s", logLevelStr, err)
+		os.Exit(1)
+	}
+
+	log := &logrus.Logger{
+		Out: os.Stderr,
+		Formatter: &logrus.TextFormatter{
+			DisableTimestamp: true,
+		},
+		Level: logLevel,
+	}
+
+	// args := pflag.Args()
+	// pp.Println(args)
+	// if len(args) == 0 {
+	//	log.Fatal("no patterns passed")
+	// }
+
+	// patternStr := strings.Join(args, " ")
+	patternStr := "Dockerfile"
+	pattern, err := regexp.Compile(patternStr)
+	if err != nil {
+		log.Fatalf("Can not parse %q: %s", patternStr, err)
+	}
+	log.Infof("Pattern: %s", pattern)	
+
+	header := []string{"repo", "file"}
+	if pattern.NumSubexp() == 0 {
+		header = append(header, "line")
+	} else {
+		for i := 0; i < pattern.NumSubexp(); i++ {
+			header = append(header, fmt.Sprintf("group%d", i))
+		}
+	}
+
+	output := csv.NewWriter(os.Stdout)
+	output.Write(header)
+	output.Flush()
 
 	// Setup Github API client, with persistent caching
 	var (
 		cache          = diskcache.New("./data/github-cache")
 		cacheTransport = httpcache.NewTransport(cache)
-		tokenSource    = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: *token})
+		tokenSource    = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 		authTransport  = oauth2.Transport{Source: tokenSource, Base: cacheTransport}
 		client         = github.NewClient(&http.Client{Transport: &authTransport})
 	)
 
 	ctx := context.Background()
-	// tc := oauth2.NewClient(ctx, ts)
-	// client := github.NewClient(tc)
 
 	searchOpt := &github.SearchOptions{
 		Sort:  "created",
@@ -67,14 +108,15 @@ func main() {
 
 	reposSet := make(map[string]struct{})
 
-	queries := generateDateRange(*query, 2007, 2020)
+	queries := generateDateRange(query, 2020, 2020)
+	if debug {
 	pp.Println(queries)
-	// os.Exit(1)
+}
 
 	t := throttler.New(1, 10000000)
 
 	for _, q := range queries {
-		fmt.Println("query:", q)
+		log.Println("query:", q)
 		currentPage := 1
 		lastPage := 1
 
@@ -94,7 +136,7 @@ func main() {
 				}
 
 				lastPage = resp.LastPage
-				log.Println("visiting ", resp.Request.URL.String())
+				log.Println("visiting", resp.Request.URL.String())
 				// log.Println("lastPage: ", resp.LastPage, "nextPage: ", resp.NextPage, "currentPage", currentPage, "lastPage", lastPage)
 				// for _, cr := range code.CodeResults {
 				for _, cr := range code.Repositories {
@@ -126,15 +168,41 @@ func main() {
 		}
 		log.Fatal(t.Err())
 	}
-count := false
-	if count {
+
+	repoAuth := &ghttp.BasicAuth{
+		Username: "x0rzkov",
+		Password: token,
+	}
+
 	c := 0
-	for r := range reposSet {
-		fmt.Println(r)
+	for repoURL := range reposSet {
+		fmt.Println("repoURL", repoURL)
+		log.Infof("Searching: %s", repoURL)
+
+		if info, err := vcsurl.Parse(repoURL); err == nil {
+
+			branches, err := listBranches(client, info.Username, info.Name)
+			if err != nil {
+				log.Fatal(err)
+			}
+			pp.Println(branches)
+
+			entries, err := getEntries(client, info.Username, info.Name, "master", true)
+			if err != nil {
+				log.Fatal(err)
+			}
+			pp.Println(entries)
+		}
+
+		if err := findInRepo(log.WithField("repo", repoURL), writeOutput(output, repoURL), repoURL, repoAuth, pattern); err != nil {
+			log.Warnf("Error in %q: %s", repoURL, err)
+		}
+
 		c++
 	}
+
 	log.Println("count: ", c)
-}
+
 }
 
 func sleepIfRateLimitExceeded(ctx context.Context, client *github.Client) {
@@ -149,6 +217,15 @@ func sleepIfRateLimitExceeded(ctx context.Context, client *github.Client) {
 		time.Sleep(timeToSleep)
 	}
 }
+
+func generateDateRange(query string, startYear, endYear int) (queries []string) {
+	for curYear := endYear; curYear >= startYear; curYear-- {
+		dateRange := fmt.Sprintf("created:%d-01-01..%d-12-31", curYear, curYear)
+		queries = append(queries, fmt.Sprintf("%s %s", query, dateRange))
+	}
+	return
+}
+
 
 type outputFunc func(fileName, line string, match []string)
 

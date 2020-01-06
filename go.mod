@@ -22,6 +22,7 @@ require (
 	github.com/sirupsen/logrus v1.4.2 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/stamblerre/gocode v1.0.0 // indirect
+	github.com/x0rzkov/go-vcsurl v1.0.1 // indirect
 	github.com/zmb3/gogetdoc v0.0.0-20190228002656-b37376c5da6a // indirect
 	golang.org/x/oauth2 v0.0.0-20191202225959-858c2ad4c8b6 // indirect
 	golang.org/x/tools v0.0.0-20200103221440-774c71fcf114 // indirect
