@@ -1,13 +1,14 @@
+
 import glob
 import os
 import json
 import string
 import collections
 
-dataPath = "/opt/app/data"
+from config import dataPath
 
-F_JSON = sorted(glob.glob("../data/readme/*.json"))
-F_REPO = sorted(glob.glob("../data/repos/*.json"))
+F_JSON = sorted(glob.glob(dataPath+"/data/readme/*.json"))
+F_REPO = sorted(glob.glob(dataPath+"/data/repos/*.json"))
 output_dir = 'a2g-links'
 
 # Build a lookup table
@@ -62,7 +63,7 @@ def extract_arxiv_id_from_link(link):
             idx = '/'.join([tokens[0], tokens[2]])
     else:
         msg = "Strange link extracted {}".format(link)
-        print msg
+        print(msg)
 
     return remove_version_number(idx)
 
@@ -195,7 +196,7 @@ for js in json_iterator():
 
         id = js['id']
         if id not in repo_lookup:
-            print "Can't find id {}".format(id)
+            print("Can't find id {}".format(id))
             continue
         item = repo_lookup[id]
         
@@ -208,7 +209,7 @@ for js in json_iterator():
             AX[ax_type][x].append(item)
 
             
-os.system('mkdir -p data data/'+output_dir)
+os.system('mkdir -p '+dataPath+' '+dataPath+'/'+output_dir)
 
 for ax_type in AX:
     for key in AX[ax_type]:
@@ -231,7 +232,7 @@ all_ID = sorted(list(all_ID))
 for key in all_ID:
     
     # Can't have slashes in filenames
-    f_name = os.path.join('data',output_dir, key.replace('/','_'))
+    f_name = os.path.join(dataPath, output_dir, key.replace('/','_'))
 
     data = {
         'citation' : AX['citation'][key],

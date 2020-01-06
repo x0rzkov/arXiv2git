@@ -12,6 +12,8 @@ services:
   arxiv2git-py:
     container_name: arxiv2git-py
     build: ./python
+    environment:
+    - GITHUB_TOKEN=${GITHUB_TOKEN}
     volumes:
     - arxiv2git-data:/opt/app/data
     command: ["all"]

@@ -1,3 +1,4 @@
+
 import json
 import os
 import time
@@ -11,15 +12,16 @@ from datetime import date
 current_year = date.today().year
 current_month = date.today().month
 
+from config import dataPath
 from utils import get_login_params
 login_params = get_login_params()
 
-os.system('mkdir -p ../data ../data/readme')
+os.system('mkdir -p '+dataPath+' '+dataPath+'/readme')
 
 clone_cmd = 'git clone --depth 1 {url} {dest}'
 
 def repo_iter():
-    gb = os.path.join('..', 'data','repos','*.json')
+    gb = os.path.join(dataPath,'repos','*.json')
     F_REPO = glob.glob(gb)
 
     for f in F_REPO:
@@ -29,7 +31,7 @@ def repo_iter():
             yield item
 
 def get_filename(id):
-    return os.path.join('..', 'data','readme','{}.json'.format(id))
+    return os.path.join(dataPath,'readme','{}.json'.format(id))
 
 def update_needed(id):
     f_readme = get_filename(id)
@@ -39,10 +41,10 @@ def update_needed(id):
 
 def gather_readme(item):
     # Clear the space
-    os.system('rm -rf ../tmp')
+    os.system('rm -rf '+dataPath+'/tmp')
 
     # Clone the repo
-    cmd = clone_cmd.format(url=item["git_url"],dest="../tmp")
+    cmd = clone_cmd.format(url=item["git_url"],dest=dataPath+"/tmp")
     os.system(cmd)
 
     # Find the matching files
@@ -63,22 +65,22 @@ def gather_readme(item):
             data[os.path.basename(f)] = val
 
     # Clear the space
-    os.system('rm -rf ../tmp')
+    os.system('rm -rf '+dataPath+'/tmp')
     
     return data
 
 
-print "Reading repo list"
+print("Reading repo list")
 REPOS = [r for r in repo_iter() if update_needed(r["id"])]
     
 for r in tqdm.tqdm(REPOS):
 
     id = r['id']
     #if not update_needed(id):
-    #    print "Skipping", id
+    #    print("Skipping", id)
     #    continue
 
-    print "Cloning", id
+    print("Cloning", id)
        
     data = gather_readme(r)
     data["description"] = r["description"]
@@ -90,5 +92,5 @@ for r in tqdm.tqdm(REPOS):
     with codecs.open(get_filename(id),'w','utf-8') as FOUT:
         FOUT.write(js)
 
-    print "Sleeping", 2
+    print("Sleeping", 2)
     time.sleep(2)

@@ -5,16 +5,22 @@ set -e
 
 case "$1" in
 
+  'all')
+  	python3 /opt/app/0.pull_repo_list.py
+  	python3 /opt/app/1.fetch_README.py
+  	python3 /opt/app/2.extract_arxiv_links.py
+	;;
+
   'pull')
-  	exec /opt/app/0.pull_repo_list.py $@
+  	exec python3 /opt/app/0.pull_repo_list.py $@
 	;;
 
   'fetch')
-  	exec /usr/bin/1.fetch_README.py $@
+  	exec python3 /opt/app/1.fetch_README.py $@
 	;;
 
   'extract')
-  	exec /usr/bin/2.extract_arxiv_links.py $@
+  	exec python3 /opt/app/2.extract_arxiv_links.py $@
   	;;
 
   *)

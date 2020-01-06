@@ -16,7 +16,7 @@ version:
 ## image		:	build image and tag them.
 .PHONY: image
 image:
-	@docker build --build-arg NOW=$(NOW) -t ${IMAGE}:${VERSION} .
+	@docker build --build-arg NOW=$(NOW) --build-arg VERSION=$(VERSION) -t ${IMAGE}:${VERSION} .
 	@docker tag ${IMAGE}:${VERSION} ${IMAGE}:latest
 
 ## push-image	:	push docker image.

@@ -1,6 +1,6 @@
 IMAGE := x0rzkov/arxiv2git-python
 
-VERSION := $(shell git describe HEAD)
+VERSION := $(shell git describe HEAD --always)
 BRANCH := $(shell git rev-parse --abbrev-ref HEAD | tr / -)
 NOW=$(shell TZ=UTC date +%Y-%m-%dT%H:%M:%SZ)
 BUILD := 0

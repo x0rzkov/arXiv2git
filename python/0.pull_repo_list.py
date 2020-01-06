@@ -1,3 +1,4 @@
+
 import requests
 import json
 import os
@@ -11,6 +12,7 @@ current_month = date.today().month
 #import requests_cache
 #requests_cache.install_cache('working_cache')
 
+from config import dataPath
 from utils import get_login_params
 login_params = get_login_params()
 
@@ -34,7 +36,7 @@ base_url = "https://api.github.com/search/repositories"
 params = {
     "sort" :"created",
     "order":"desc",
-    "per_page":100,
+    "per_page": 100,
 }
 params.update(login_params)
 
@@ -46,7 +48,7 @@ def grab(url, params):
     h = r.headers
     
     if r.status_code != 200:
-        print h
+        print(h)
         msg = "Exiting with status code {}".format(r.status_code)
         raise ValueError(msg)
     
@@ -55,7 +57,7 @@ def grab(url, params):
     
     if remaining_req < 2:
         delta = int(h["X-RateLimit-Reset"]) - current_time + 2
-        print "Rate limit hit! Holding...", delta
+        print("Rate limit hit! Holding...", delta)
         time.sleep(delta)
         
     js = json.loads(r.content)
@@ -96,7 +98,7 @@ def grab_range(year,month):
     results = []
     for k,page in enumerate(INPUT_ITR):
        
-        print "Grabbed {: 3d} items from page {}".format(len(page["items"]),k)
+        print("Grabbed {: 3d} items from page {}".format(len(page["items"]),k))
 
         for item in page["items"]:
             results.append(reduce_item(item))
@@ -109,9 +111,7 @@ def reduce_item(item):
         data[key] = item[key]
     return data
 
-
-
-os.system('mkdir -p ../data ../data/repos')
+os.system('mkdir -p '+dataPath+' '+dataPath+'/repos')
 
 years = range(2007, current_year+1)
 months = range(1,13)
@@ -125,13 +125,13 @@ for year,month in INPUT_ITR:
         if month > current_month:
             break
               
-    print "Starting year/month", year, month
+    print("Starting year/month", year, month)
 
     results = grab_range(year,month)
     assert(_total_count == len(results))
-    print " {} results found".format(len(results))
+    print(" {} results found".format(len(results)))
 
-    f_out = '../data/repos/{}_{}.json'.format(year,month)
+    f_out = dataPath+'/repos/{}_{}.json'.format(year,month)
     with open(f_out,'w') as FOUT:
         s = json.dumps(results,indent=2)
         FOUT.write(s)
