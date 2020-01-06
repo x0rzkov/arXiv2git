@@ -143,3 +143,7 @@ golang/data
 golang/data/
 golang/data/*
 golang/data/**
+python/data
+python/data/
+python/data/*
+python/data/**

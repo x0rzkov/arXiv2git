@@ -6,7 +6,8 @@ COPY .  /go/src/github.com/x0rxkov/arXiv2git
 WORKDIR /go/src/github.com/x0rxkov/arXiv2git
 
 RUN cd /go/src/github.com/x0rxkov/arXiv2git \
- && go build -v
+ && go install \
+ && ls -lhS /go/bin
 
 FROM alpine:3.11 AS runtime
 
@@ -24,7 +25,7 @@ USER a2g
 WORKDIR /opt/arXiv2git
 
 # Copy git2etcd binary to /opt/git2etcd/bin
-COPY --from=builder /go/src/github.com/blippar/arXiv2git/arXiv2git /opt/arXiv2git/bin/arXiv2git
+COPY --from=builder /go/bin/golang /opt/arXiv2git/bin/arXiv2git
 # COPY config.example.json /opt/arXiv2git/config/config.json
 ENV PATH $PATH:/opt/arXiv2git/bin
 
