@@ -39,6 +39,8 @@ params = {
     "per_page": 100,
 }
 params.update(login_params)
+print('params:', params)
+print('dataPath:', dataPath)
 
 _total_count = None
 
@@ -91,6 +93,7 @@ def grab_range(year,month):
         "created:{date}".format(date=date),
         "fork:false",
     ])
+    # arxiv in:description,readme created:2019-01-01..2019-12-31 fork:false
 
     params['q'] = q              
     INPUT_ITR = grab(base_url, params)

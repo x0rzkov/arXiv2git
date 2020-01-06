@@ -1,495 +1,239 @@
 package main
 
 import (
-	"bytes"
+	"bufio"
+	"context"
+	"encoding/csv"
 	"fmt"
-	stdioutil "io/ioutil"
 	"log"
 	"net/http"
 	"os"
-	"path"
-	"strings"
+	"path/filepath"
+	"regexp"
+	"time"
 
-	"github.com/goccy/go-yaml"
-	"github.com/gosimple/slug"
-	"github.com/jinzhu/gorm"
+	"github.com/austinorth/flag"
+	"github.com/google/go-github/v28/github"
+	"github.com/gregjones/httpcache"
+	"github.com/gregjones/httpcache/diskcache"
 	"github.com/k0kubun/pp"
-	"github.com/karrick/godirwalk"
-	_ "github.com/mattn/go-sqlite3"
-	"github.com/qor/admin"
+	"github.com/nozzle/throttler"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/oauth2"
 	"gopkg.in/src-d/go-billy.v4"
 	"gopkg.in/src-d/go-billy.v4/memfs"
 	"gopkg.in/src-d/go-git.v4"
-	// "gopkg.in/src-d/go-git.v4/config"
-	"gopkg.in/src-d/go-git.v4/plumbing"
-	"gopkg.in/src-d/go-git.v4/plumbing/filemode"
-	"gopkg.in/src-d/go-git.v4/plumbing/object"
+	"gopkg.in/src-d/go-git.v4/plumbing/transport"
 	"gopkg.in/src-d/go-git.v4/storage/memory"
-	"gopkg.in/src-d/go-git.v4/utils/ioutil"
-
-	"github.com/onionltd/oniontree-tools/pkg/types/service"
 )
 
-var (
-	debugMode  = true
-	debugMode2 = true
-	isTruncate = true
-	db         *gorm.DB
-	tables     = []interface{}{
-		&Tag{},
-		&Service{},
-		&PublicKey{},
-		&URL{},
+//  go run github.go -token=02406a1e4eeab7ee947329f2c9b6ed6c9a81549d -query=arxiv
+
+func generateDateRange(query string, startYear, endYear int) (queries []string) {
+	// for curYear := startYear; curYear >= startYear; curYear++ {
+	for curYear := endYear; curYear >= startYear; curYear-- {
+		log.Println("curYear", curYear, "endYear", endYear, "startYear", startYear)
+		dateRange := fmt.Sprintf("created:%d-01-01..%d-12-31", curYear, curYear)
+		queries = append(queries, fmt.Sprintf("%s %s", query, dateRange))
 	}
-)
-
-// Create a GORM-backend model
-type Tag struct {
-	gorm.Model
-	Name string `gorm:"size:32;unique" json:"name" yaml:"name"`
-}
-
-type Service struct {
-	gorm.Model
-	Name        string       `json:"name" yaml:"name"`
-	Slug        string       `json:"slug,omitempty" yaml:"slug,omitempty"`
-	Description string       `json:"description,omitempty" yaml:"description,omitempty"`
-	URLs        []*URL       `json:"urls,omitempty" yaml:"urls,omitempty"`
-	PublicKeys  []*PublicKey `json:"public_keys,omitempty" yaml:"public_keys,omitempty"`
-	Tags        []*Tag       `gorm:"many2many:service_tags;" json:"tags,omitempty" yaml:"tags,omitempty"`
-}
-
-type URL struct {
-	gorm.Model
-	Name      string `gorm:"size:255;unique" json:"href" yaml:"href"`
-	Healthy   bool   `json:"healthy" yaml:"healthy"`
-	ServiceID uint   `json:"-" yaml:"-"`
-}
-
-type PublicKey struct {
-	gorm.Model
-	UID         string `gorm:"primary_key" json:"id,omitempty" yaml:"id,omitempty"`
-	UserID      string `json:"user_id,omitempty" yaml:"user_id,omitempty"`
-	Fingerprint string `json:"fingerprint,omitempty" yaml:"fingerprint,omitempty"`
-	Description string `json:"description,omitempty" yaml:"description,omitempty"`
-	Value       string `json:"value" yaml:"value"`
-	ServiceID   uint   `json:"-" yaml:"-"`
+	return
 }
 
 func main() {
-	db, _ := gorm.Open("sqlite3", "oniontree.db")
-	if isTruncate {
-		truncateTables(db, tables...)
+	token := flag.String("token", "", "Personal/Oauth2 github token")
+	query := flag.String("query", "", "Query")
+	flag.Parse()
+
+	// Setup Github API client, with persistent caching
+	var (
+		cache          = diskcache.New("./data/github-cache")
+		cacheTransport = httpcache.NewTransport(cache)
+		tokenSource    = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: *token})
+		authTransport  = oauth2.Transport{Source: tokenSource, Base: cacheTransport}
+		client         = github.NewClient(&http.Client{Transport: &authTransport})
+	)
+
+	ctx := context.Background()
+	// tc := oauth2.NewClient(ctx, ts)
+	// client := github.NewClient(tc)
+
+	searchOpt := &github.SearchOptions{
+		Sort:  "created",
+		Order: "desc",
+		ListOptions: github.ListOptions{
+			PerPage: 100,
+		},
 	}
-	db.AutoMigrate(&Tag{}, &Service{}, &URL{}, &PublicKey{})
-	if debugMode {
-		db.LogMode(true)
-	}
 
-	// Initalize
-	// ref. https://doc.getqor.com/admin/general.html
-	Admin := admin.New(&admin.AdminConfig{
-		DB:       db,
-		SiteName: "OnionTreeLtd",
-	})
+	reposSet := make(map[string]struct{})
 
-	// Allow to use Admin to manage Tag, PublicKey, URL, Service
-	Admin.AddResource(&Tag{})
-	//Admin.AddResource(&Service{})
-
-	svc := Admin.AddResource(&Service{})
-	//	svc.IndexAttrs("Name", "URLs", "Tags")
-	svc.Meta(&admin.Meta{
-		Name: "Description",
-		Type: "rich_editor",
-	})
-	//*/
-
-	// Admin.AddResource(&PublicKey{})
-	pks := Admin.AddResource(&PublicKey{})
-	//		pks.IndexAttrs("UID", "UserID", "Description")
-	pks.Meta(&admin.Meta{
-		Name: "Value",
-		Type: "text",
-	})
-
-	Admin.AddResource(&URL{})
-
-	// getWorkTree(db)
+	queries := generateDateRange(*query, 2007, 2020)
+	pp.Println(queries)
 	// os.Exit(1)
-	dirWalkServices(db)
 
-	// initalize an HTTP request multiplexer
-	mux := http.NewServeMux()
+	t := throttler.New(1, 10000000)
 
-	// Mount admin interface to mux
-	Admin.MountTo("/admin", mux)
+	for _, q := range queries {
+		fmt.Println("query:", q)
+		currentPage := 1
+		lastPage := 1
 
-	fmt.Println("Listening on: 9000")
-	http.ListenAndServe(":9000", mux)
-}
-
-func dirWalkServices(db *gorm.DB) {
-	dirname := "./tagged"
-	err := godirwalk.Walk(dirname, &godirwalk.Options{
-		Callback: func(osPathname string, de *godirwalk.Dirent) error {
-			if !de.IsDir() {
-				parts := strings.Split(osPathname, "/")
-				if debugMode {
-					fmt.Printf("Type:%s osPathname:%s tag:%s\n", de.ModeType(), osPathname, parts[1])
-				}
-				bytes, err := stdioutil.ReadFile(osPathname)
+		for currentPage <= lastPage {
+			// Increment the WaitGroup counter.
+			// wg.Add(1)
+			go func(q string) error {
+				// Let Throttler know when the goroutine completes
+				// so it can dispatch another worker
+				defer t.Done(nil)
+				// time.Sleep(4 * time.Second)
+				// code, resp, err := client.Search.Code(ctx, query, searchOpt)
+				code, resp, err := client.Search.Repositories(ctx, q, searchOpt)
+				sleepIfRateLimitExceeded(ctx, client)
 				if err != nil {
 					return err
 				}
-				t := service.Service{}
-				yaml.Unmarshal(bytes, &t)
-				if debugMode {
-					pp.Println(t)
-				}
 
-				// add service
-				m := &Service{
-					Name:        t.Name,
-					Description: t.Description,
-					Slug:        slug.Make(t.Name),
-				}
-
-				if err := db.Create(m).Error; err != nil {
-					fmt.Println(err)
-					os.Exit(1)
-				}
-
-				// add public keys
-				for _, publicKey := range t.PublicKeys {
-					pubKey := &PublicKey{
-						UID:         publicKey.ID,
-						UserID:      publicKey.UserID,
-						Fingerprint: publicKey.Fingerprint,
-						Description: publicKey.Description,
-						Value:       publicKey.Value,
-					}
-					if _, err := createOrUpdatePublicKey(db, m, pubKey); err != nil {
-						fmt.Println(err)
-						os.Exit(1)
+				lastPage = resp.LastPage
+				log.Println("visiting ", resp.Request.URL.String())
+				// log.Println("lastPage: ", resp.LastPage, "nextPage: ", resp.NextPage, "currentPage", currentPage, "lastPage", lastPage)
+				// for _, cr := range code.CodeResults {
+				for _, cr := range code.Repositories {
+					repoURL := *cr.HTMLURL
+					if _, ok := reposSet[repoURL]; !ok {
+						reposSet[repoURL] = struct{}{}
 					}
 				}
-
-				// add urls
-				for _, url := range t.URLs {
-					var urlExists URL
-					u := &URL{Name: url}
-					if db.Where("name = ?", url).First(&urlExists).RecordNotFound() {
-						db.Create(&u)
-						if debugMode {
-							pp.Println(u)
-						}
-					}
-					if _, err := createOrUpdateURL(db, m, u); err != nil {
-						fmt.Println(err)
-						os.Exit(1)
-					}
-
+				currentPage++
+				if resp.LastPage == 0 {
+					return nil
 				}
+				searchOpt.Page = resp.NextPage
+				// Go to the next page
+				return nil
+			}(q)
+			// Wait for all HTTP fetches to complete.
+			t.Throttle()
+		}
+		searchOpt.Page = 1
+		currentPage = 1
+		lastPage = 1
+	}
 
-				// add tags
-				// check if tag already exists
-				tag := &Tag{Name: parts[1]}
-				var tagExists Tag
-				if db.Where("name = ?", parts[1]).First(&tagExists).RecordNotFound() {
-					db.Create(&tag)
-					if debugMode {
-						pp.Println(tag)
-					}
-				}
+	if t.Err() != nil {
+		// Loop through the errors to see the details
+		for i, err := range t.Errs() {
+			fmt.Printf("error #%d: %s", i, err)
+		}
+		log.Fatal(t.Err())
+	}
+count := false
+	if count {
+	c := 0
+	for r := range reposSet {
+		fmt.Println(r)
+		c++
+	}
+	log.Println("count: ", c)
+}
+}
 
-				if _, err := createOrUpdateTag(db, m, tag); err != nil {
-					fmt.Println(err)
-					os.Exit(1)
-				}
-
-			}
-			return nil
-		},
-		Unsorted: true, // (optional) set true for faster yet non-deterministic enumeration (see godoc)
-	})
+func sleepIfRateLimitExceeded(ctx context.Context, client *github.Client) {
+	rateLimit, _, err := client.RateLimits(ctx)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Printf("Problem in getting rate limit information %v\n", err)
+		return
+	}
+
+	if rateLimit.Search.Remaining == 1 {
+		timeToSleep := rateLimit.Search.Reset.Sub(time.Now()) + time.Second
+		time.Sleep(timeToSleep)
 	}
 }
 
-func createOrUpdateTag(db *gorm.DB, svc *Service, tag *Tag) (bool, error) {
-	var existingSvc Service
-	if db.Where("slug = ?", svc.Slug).First(&existingSvc).RecordNotFound() {
-		err := db.Create(svc).Error
-		return err == nil, err
-	}
-	var existingTag Tag
-	if db.Where("name = ?", tag.Name).First(&existingTag).RecordNotFound() {
-		err := db.Create(tag).Error
-		return err == nil, err
-	}
-	svc.ID = existingSvc.ID
-	svc.CreatedAt = existingSvc.CreatedAt
-	svc.Tags = append(svc.Tags, &existingTag)
-	return false, db.Save(svc).Error
-}
+type outputFunc func(fileName, line string, match []string)
 
-func findPublicKeyByUID(db *gorm.DB, uid string) *PublicKey {
-	pubKey := &PublicKey{}
-	if err := db.Where(&PublicKey{UID: uid}).First(pubKey).Error; err != nil {
-		log.Fatalf("can't find public_key with uid = %q, got err %v", uid, err)
-	}
-	return pubKey
-}
-
-func createOrUpdatePublicKey(db *gorm.DB, svc *Service, pubKey *PublicKey) (bool, error) {
-	var existingSvc Service
-	if db.Where("slug = ?", svc.Slug).First(&existingSvc).RecordNotFound() {
-		err := db.Create(svc).Error
-		return err == nil, err
-	}
-	var existingPublicKey PublicKey
-	if db.Where("uid = ?", pubKey.UID).First(&existingPublicKey).RecordNotFound() {
-		err := db.Create(pubKey).Error
-		return err == nil, err
-	}
-	svc.ID = existingSvc.ID
-	svc.CreatedAt = existingSvc.CreatedAt
-	svc.PublicKeys = append(svc.PublicKeys, &existingPublicKey)
-	return false, db.Save(svc).Error
-}
-
-func createOrUpdateURL(db *gorm.DB, svc *Service, url *URL) (bool, error) {
-	var existingSvc Service
-	if db.Where("slug = ?", svc.Slug).First(&existingSvc).RecordNotFound() {
-		err := db.Create(svc).Error
-		return err == nil, err
-	}
-	var existingURL URL
-	if db.Where("name = ?", url.Name).First(&existingURL).RecordNotFound() {
-		err := db.Create(url).Error
-		return err == nil, err
-	}
-	svc.ID = existingSvc.ID
-	svc.CreatedAt = existingSvc.CreatedAt
-	svc.URLs = append(svc.URLs, &existingURL)
-	return false, db.Save(svc).Error
-}
-
-/*
-// findServiceByTag finds a service by remote ID and service
-func findServiceByTag(db *gorm.DB, remoteID string, service *Service) (*Star, error) {
-	// Get existing by remote ID and service ID
-	var star Star
-	if db.Where("remote_id = ? AND service_id = ?", remoteID, service.ID).First(&star).RecordNotFound() {
-		return nil, errors.New("not found")
-	}
-	return &star, nil
-}
-*/
-
-func truncateTables(db *gorm.DB, tables ...interface{}) {
-	for _, table := range tables {
-		if debugMode {
-			pp.Println(table)
+func writeOutput(output *csv.Writer, repoURL string) outputFunc {
+	return func(fileName, line string, match []string) {
+		record := []string{repoURL, fileName}
+		if len(match) == 0 {
+			record = append(record, line)
+		} else {
+			record = append(record, match[1:]...)
 		}
-		if err := db.DropTableIfExists(table).Error; err != nil {
-			panic(err)
-		}
-		db.AutoMigrate(table)
+		output.Write(record)
+		output.Flush()
 	}
 }
 
-// Clone a repository to memory and ...
-func getWorkTree(db *gorm.DB) error {
+func findInRepo(log logrus.FieldLogger, output outputFunc, repoURL string, auth transport.AuthMethod, pattern *regexp.Regexp) error {
 	fs := memfs.New()
-	r, err := git.Clone(memory.NewStorage(), fs, &git.CloneOptions{
-		URL:           "https://github.com/onionltd/oniontree",
-		ReferenceName: plumbing.NewBranchReferenceName("master"),
-		SingleBranch:  true,
-		Depth:         1,
-		Tags:          git.NoTags,
+	storer := memory.NewStorage()
+
+	repo, err := git.Clone(storer, fs, &git.CloneOptions{
+		URL:   repoURL,
+		Auth:  auth,
+		Depth: 1,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("can not clone: %s", err)
 	}
 
-	head, err := r.Head()
+	tree, err := repo.Worktree()
 	if err != nil {
-		return err
+		return fmt.Errorf("can not get worktree: %s", err)
 	}
 
-	commit, err := r.CommitObject(head.Hash())
+	dir, err := fs.ReadDir("")
 	if err != nil {
-		return err
+		return fmt.Errorf("can not read root: %s", err)
 	}
 
-	tree, err := r.TreeObject(commit.TreeHash)
-	if err != nil {
-		return err
-	}
+	return walkInfo(log, output, tree.Filesystem, "", dir, pattern)
+}
 
-	type treePath struct {
-		*object.Tree
-		Path string
-	}
-
-	for frontier := []treePath{{Tree: tree, Path: "/"}}; len(frontier) > 0; frontier = frontier[1:] {
-		t := frontier[0]
-
-		for _, e := range t.Entries {
-			pp.Println("e.Name: ", e.Name, "t.Path: ", t.Path)
-			if e.Mode != filemode.Dir {
-				// We only care about directories.
-				continue
+func walkInfo(log logrus.FieldLogger, output outputFunc, fs billy.Filesystem, base string, dir []os.FileInfo, pattern *regexp.Regexp) error {
+	for _, info := range dir {
+		name := filepath.Join(base, info.Name())
+		if info.IsDir() {
+			if err := findInDir(log.WithField("dir", name), output, fs, name, pattern); err != nil {
+				log.Warnf("error finding in %q: %s", name, err)
 			}
-			if strings.HasPrefix(e.Name, ".") || strings.HasPrefix(e.Name, "_") || e.Name == "testdata" {
-				fmt.Println("Continue because e.Name=", e.Name)
-				continue
-			}
-			tree, err := r.TreeObject(e.Hash)
-			if err != nil {
-				fmt.Println("error with e.Hash=", e.Hash)
-				return err
-			}
-			frontier = append(frontier, treePath{
-				Tree: tree,
-				Path: path.Join(t.Path, e.Name),
-			})
+			continue
 		}
-		i := 0
-		for _, e := range t.Entries {
-			// if e.Mode != filemode.Regular && e.Mode != filemode.Executable {
-			// fmt.Println("continue with filemode.Regular=", filemode.Regular, " or filemode.Executable", filemode.Executable)
-			// continue
-			// }
 
-			parts := strings.Split(t.Path, "/")
-			if len(parts) <= 2 {
-				continue
-			}
-
-			if debugMode2 {
-				fmt.Printf("Name:%s Path:%s Length parts:%d\n", e.Name, t.Path, len(parts))
-				fmt.Printf("Name:%s Path:%s Tag:%s\n", e.Name, t.Path, parts[2])
-				pp.Println("parts", parts)
-				if i == 100 {
-					os.Exit(1)
-				}
-				i++
-			}
-
-			fmt.Println(path.Join(t.Path, e.Name))
-
-			blob, err := r.BlobObject(e.Hash)
-			if err != nil {
-				return err
-			}
-
-			r, err := blob.Reader()
-			if err != nil {
-				return err
-			}
-
-			if e.Mode == filemode.Symlink {
-				pp.Println(e)
-				//err := checkoutFileSymlink(e.File, fs)
-				//if err != nil {
-				//	return err
-				//}
-			}
-
-			svc := service.Service{}
-			buf := new(bytes.Buffer)
-			buf.ReadFrom(r)
-
-			// pp.Println("newStr", newStr)
-			yaml.Unmarshal(buf.Bytes(), &svc)
-			if debugMode {
-				pp.Println("svc: ", svc)
-			}
-
-			if debugMode2 {
-				pp.Println("===============================================================\n", buf.String())
-			}
-			r.Close()
-
-			// add service
-			m := &Service{
-				Name:        svc.Name,
-				Description: svc.Description,
-				Slug:        slug.Make(svc.Name),
-			}
-
-			if err := db.Create(m).Error; err != nil {
-				fmt.Println(err)
-				os.Exit(1)
-			}
-
-			// add public keys
-			for _, publicKey := range svc.PublicKeys {
-				pubKey := &PublicKey{
-					UID:         publicKey.ID,
-					UserID:      publicKey.UserID,
-					Fingerprint: publicKey.Fingerprint,
-					Description: publicKey.Description,
-					Value:       publicKey.Value,
-				}
-				if _, err := createOrUpdatePublicKey(db, m, pubKey); err != nil {
-					fmt.Println(err)
-					os.Exit(1)
-				}
-			}
-
-			// add urls
-			for _, url := range svc.URLs {
-				var urlExists URL
-				u := &URL{Name: url}
-				if db.Where("name = ?", url).First(&urlExists).RecordNotFound() {
-					db.Create(&u)
-					if debugMode {
-						pp.Println(u)
-					}
-				}
-				if _, err := createOrUpdateURL(db, m, u); err != nil {
-					fmt.Println(err)
-					os.Exit(1)
-				}
-
-			}
-
-			// add tags
-			// check if tag already exists
-			tag := &Tag{Name: parts[2]}
-			var tagExists Tag
-			if db.Where("name = ?", parts[1]).First(&tagExists).RecordNotFound() {
-				db.Create(&tag)
-				if debugMode {
-					pp.Println(tag)
-				}
-			}
-
-			if _, err := createOrUpdateTag(db, m, tag); err != nil {
-				fmt.Println(err)
-				os.Exit(1)
-			}
+		if err := findInFile(log.WithField("file", name), output, fs, name, pattern); err != nil {
+			log.Warnf("error finding in %q: %s", name, err)
 		}
 	}
 
 	return nil
 }
 
-func checkoutFileSymlink(f *object.File, fs billy.Filesystem) (err error) {
-	from, err := f.Reader()
+func findInDir(log logrus.FieldLogger, output outputFunc, fs billy.Filesystem, dir string, pattern *regexp.Regexp) error {
+	log.Debugf("dir: %s", dir)
+
+	subDir, err := fs.ReadDir(dir)
 	if err != nil {
-		return
+		return fmt.Errorf("can not list %q: %s", dir, err)
 	}
-	defer ioutil.CheckClose(from, &err)
-	bytes, err := stdioutil.ReadAll(from)
+
+	return walkInfo(log, output, fs, dir, subDir, pattern)
+}
+
+func findInFile(log logrus.FieldLogger, output outputFunc, fs billy.Filesystem, name string, pattern *regexp.Regexp) error {
+	log.Debugf("file: %s", name)
+	file, err := fs.Open(name)
 	if err != nil {
-		return
+		return fmt.Errorf("can not read %q: %s", name, err)
 	}
-	err = fs.Symlink(string(bytes), f.Name)
-	return
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if match := pattern.FindStringSubmatch(line); match != nil {
+			output(name, line, match)
+		}
+	}
+	return nil
 }

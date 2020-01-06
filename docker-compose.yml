@@ -2,16 +2,20 @@
 version: '3.7'
 services:
 
-  arxiv2git-go:
-    container_name: arxiv2git-go
-    build: ./golang
+  arxiv2git-py:
+    image: x0rzkov/arxiv2git-py:latest
+    container_name: arxiv2git-py
+    build: ./python
+    environment:
+    - GITHUB_TOKEN=${GITHUB_TOKEN}
     volumes:
     - arxiv2git-data:/opt/app/data
     command: ["all"]
 
-  arxiv2git-py:
-    container_name: arxiv2git-py
-    build: ./python
+  arxiv2git-go:
+    image: x0rzkov/arxiv2git-go:latest
+    container_name: arxiv2git-go
+    build: ./golang
     environment:
     - GITHUB_TOKEN=${GITHUB_TOKEN}
     volumes:
