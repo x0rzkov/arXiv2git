@@ -10,6 +10,16 @@ import (
 	// "gopkg.in/fatih/set.v0"
 )
 
+func getTopics(client *github.Client, owner, name string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	topics, _, err := client.Repositories.ListAllTopics(ctx, owner, name)
+	if err != nil {
+		return nil, err
+	}
+	return topics, nil
+}
+
 func getEntries(client *github.Client, owner, name, branch string, recursive bool) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

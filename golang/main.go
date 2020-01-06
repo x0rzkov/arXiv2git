@@ -34,12 +34,15 @@ import (
 
 var (
 	logLevelStr  string
+	configFile string
 	ghUsername string
 	ghToken         string
 	query string
 	pattern string
 	storagePath string
 	cachePath string
+	outputPath string
+	prefixPath string
 	torProxy bool
 	torProxyAddress string
 	elasticIndex bool
@@ -75,8 +78,11 @@ func main() {
 	pflag.StringVarP(&ghToken, "token", "t", "", "Github personal token")
 	pflag.StringVarP(&query, "query", "q", "", "query")
 	pflag.StringVarP(&pattern, "pattern", "p", "", "pattern (eg. Dockerfile)")
-	pflag.StringVarP(&cachePath, "cache-path", "c", "./data/cache", "cache path")
+	pflag.StringVarP(&configFile, "config", "c", "x0rzkov.yml", "config file path")
+	pflag.StringVarP(&cachePath, "cache-path", "", "./data/cache", "cache path")
 	pflag.StringVarP(&storagePath, "storage-path", "s", "./data/storage", "storage path")
+	pflag.StringVarP(&outputPath, "output-path", "o", "../../dockerfiles-search", "output path for dockerfiles")
+	pflag.StringVarP(&prefixPath, "prefix-path", "", "hub.docker.com", "prefix path for dockerfiles")
 	pflag.BoolVarP(&torProxy, "tor-proxy", "", false, "use tor proxy")
 	pflag.StringVarP(&torProxyAddress, "tor-proxy-address", "", "localhost:9050", "tor proxy address")
 	pflag.BoolVarP(&elasticIndex, "elastic-index", "", false, "index content in elasticsearch")
@@ -84,10 +90,10 @@ func main() {
 	pflag.StringVarP(&ghOrder, "gh-order", "", "desc", "github list option for the order direction of results")
 	pflag.IntVarP(&ghPerPage, "gh-per-page", "", 100, "github list option for the number of entries per page")
 	pflag.StringVarP(&ghSort, "gh-sort", "", "created", "github list option for the sorting filter")
-	pflag.IntVarP(&ghStartYear, "gh-start-year", "", 2007, "github search start year")
-	pflag.IntVarP(&ghEndYear, "gh-end-year", "", 2020, "github search end year")
+	pflag.IntVarP(&ghStartYear, "gh-year-start", "", 2007, "github search start year")
+	pflag.IntVarP(&ghEndYear, "gh-year-end", "", 2020, "github search end year")
 	pflag.IntVarP(&parallelJobs, "parallel-jobs", "j", 10, "parallel jobs")
-	pflag.BoolVarP(&cloneRepo, "clone-repo", "", false, "clone repository in memory and to find patterns")
+	pflag.BoolVarP(&cloneRepo, "clone-repo", "", false, "clone repository in memory and find patterns in files")
 	pflag.BoolVarP(&debug, "debug", "d", false, "debug mode")
 	pflag.BoolVarP(&help, "help", "h", false, "help info")
 	pflag.DurationVar(&httpTimeout, "http-timeout", 5*time.Second, "Timeout for HTTP Requests.")

@@ -29,7 +29,7 @@ type DockerImage struct {
 	Description string
 	IsOfficial  bool `json:"is_official"`
 	IsTrusted   bool `json:"is_trusted"`
-	Name        string
+	Name        string `json:"name"`
 	StarCount   int    `json:"star_count"`
 	Dockerfile  string `json:"dockerfile"`
 }
@@ -37,6 +37,77 @@ type DockerImage struct {
 type DockerFile struct {
 	Contents string `json:"contents"`
 }
+
+// https://hub.docker.com/v2/repositories/aaronshaf/dynamodb-admin/
+type DockerRepo struct {
+	Affiliation     interface{}           `json:"affiliation"`
+	CanEdit         bool                  `json:"can_edit"`
+	Description     string                `json:"description"`
+	FullDescription string                `json:"full_description"`
+	HasStarred      bool                  `json:"has_starred"`
+	IsAutomated     bool                  `json:"is_automated"`
+	IsMigrated      bool                  `json:"is_migrated"`
+	IsPrivate       bool                  `json:"is_private"`
+	LastUpdated     string                `json:"last_updated"`
+	Name            string                `json:"name"`
+	Namespace       string                `json:"namespace"`
+	Permissions     DockerRepoPermissions `json:"permissions"`
+	PullCount       int                   `json:"pull_count"`
+	RepositoryType  string                `json:"repository_type"`
+	StarCount       int                   `json:"star_count"`
+	Status          int                   `json:"status"`
+	User            string                `json:"user"`
+}
+
+type DockerRepoPermissions struct {
+	Admin bool `json:"admin"`
+	Read  bool `json:"read"`
+	Write bool `json:"write"`
+}
+
+// https://hub.docker.com/v2/users/aaronshaf/
+type DockerUser struct {
+	Company     string `json:"company"`
+	DateJoined  string `json:"date_joined"`
+	FullName    string `json:"full_name"`
+	GravatarURL string `json:"gravatar_url"`
+	ID          string `json:"id"`
+	Location    string `json:"location"`
+	ProfileURL  string `json:"profile_url"`
+	Type        string `json:"type"`
+	Username    string `json:"username"`
+}
+
+// https://hub.docker.com/api/build/v1/source/?image=byrnedo%2Falpine-curl
+type DockerBuild struct {
+	Meta    DockerBuildMeta     `json:"meta"`
+	Objects []DockerBuildObject `json:"objects"`
+}
+
+type DockerBuildMeta struct {
+	Limit      int         `json:"limit"`
+	Next       interface{} `json:"next"`
+	Offset     int         `json:"offset"`
+	Previous   interface{} `json:"previous"`
+	TotalCount int         `json:"total_count"`
+}
+
+type DockerBuildObject struct {
+	Autotests     string   `json:"autotests"`
+	BuildInFarm   bool     `json:"build_in_farm"`
+	BuildSettings []string `json:"build_settings"`
+	Channel       string   `json:"channel"`
+	Deploykey     string   `json:"deploykey"`
+	Image         string   `json:"image"`
+	Owner         string   `json:"owner"`
+	Provider      string   `json:"provider"`
+	RepoLinks     bool     `json:"repo_links"`
+	Repository    string   `json:"repository"`
+	ResourceURI   string   `json:"resource_uri"`
+	State         string   `json:"state"`
+	UUID          string   `json:"uuid"`
+}
+
 
 func searchDockerHub() {
 	// Open our jsonFile

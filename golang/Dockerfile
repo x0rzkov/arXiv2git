@@ -17,21 +17,21 @@ ADD https://github.com/krallin/tini/releases/download/v0.18.0/tini-muslc-amd64 /
 # Install runtime dependencies & create runtime user
 RUN apk --no-cache --no-progress add ca-certificates \
  && chmod +x /usr/local/sbin/tini && mkdir -p /opt \
- && adduser -D a2g -h /opt/arXiv2git -s /bin/sh \
- && su a2g -c 'cd /opt/arXiv2git; mkdir -p bin config data'
+ && adduser -D a2g -h /opt/app -s /bin/sh \
+ && su a2g -c 'cd /opt/app; mkdir -p bin config data'
 
 # Switch to user context
 USER a2g
-WORKDIR /opt/arXiv2git
+WORKDIR /opt/app
 
 # Copy git2etcd binary to /opt/git2etcd/bin
-COPY --from=builder /go/bin/golang /opt/arXiv2git/bin/arXiv2git
+COPY --from=builder /go/bin/golang /opt/app/bin/arXiv2git
 # COPY config.example.json /opt/arXiv2git/config/config.json
-ENV PATH $PATH:/opt/arXiv2git/bin
+ENV PATH $PATH:/opt/app/bin
 
 # Container configuration
 EXPOSE 4242
-VOLUME ["/opt/arXiv2git/data"]
+VOLUME ["/opt/app/data"]
 ENTRYPOINT ["tini", "-g", "--"]
-CMD ["/opt/arXiv2git/bin/arXiv2git"]
-# CMD ["/opt/arXiv2git/bin/arXiv2git", "-conf_dir=/opt/arXiv2git/config"]
+CMD ["/opt/app/bin/arXiv2git"]
+# CMD ["/opt/app/bin/arXiv2git", "-conf_dir=/opt/app/config"]
