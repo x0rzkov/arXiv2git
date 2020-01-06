@@ -56,6 +56,7 @@ var (
 	httpTimeout  time.Duration
 	log *logrus.Logger
 	esClient *elastic.Client
+	store *badger.DB
 )
 
 func init() {
@@ -110,14 +111,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	store, err := badger.Open(badger.DefaultOptions(storagePath))
+	store, err = badger.Open(badger.DefaultOptions(storagePath))
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer store.Close()
 
 	if elasticIndex {
-		esClient, err := elastic.NewClient(elastic.SetURL(elasticAddress), elastic.SetSniff(false))
+		esClient, err = elastic.NewClient(elastic.SetURL(elasticAddress), elastic.SetSniff(false))
 		if err != nil {
 			log.Fatal(err)
 		}

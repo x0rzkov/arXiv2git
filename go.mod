@@ -10,6 +10,7 @@ require (
 	github.com/boz/go-throttle v0.0.0-20160922054636-fdc4eab740c1 // indirect
 	github.com/dgraph-io/badger v1.6.0 // indirect
 	github.com/fatih/motion v1.0.0 // indirect
+	github.com/gocolly/colly/v2 v2.0.1 // indirect
 	github.com/google/btree v1.0.0 // indirect
 	github.com/google/go-github/v28 v28.1.1 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
