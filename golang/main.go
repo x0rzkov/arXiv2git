@@ -196,31 +196,47 @@ func main() {
 	for repoURL := range reposSet {
 		fmt.Println("repoURL", repoURL)
 		log.Infof("Searching: %s", repoURL)
-
 		if info, err := vcsurl.Parse(repoURL); err == nil {
-
-			branches, err := listBranches(client, info.Username, info.Name)
-			if err != nil {
-				log.Fatal(err)
-			}
-			pp.Println(branches)
-
-			for _, branch := range branches {
-				entries, err := getEntries(client, info.Username, info.Name, branch, true)
+			go func(username, name string) error {
+				// Let Throttler know when the goroutine completes
+				// so it can dispatch another worker
+				defer t.Done(nil)
+				branches, err := listBranches(client, username, name)
 				if err != nil {
 					log.Fatal(err)
+					return err
 				}
-				// pp.Println(entries)
-				matches := matchPatterns(entries, patterns...)
-				pp.Println(matches)
+				for _, branch := range branches {
+					entries, err := getEntries(client, info.Username, info.Name, branch, true)
+					if err != nil {
+						log.Fatal(err)
+						return err
+					}
+					// pp.Println(entries)
+					matches := matchPatterns(entries, patterns...)
+					if len(matches) > 0 {
+						pp.Println(matches)
+					}
+				}
+				return nil
+			}(info.Username, info.Name)
+			t.Throttle()
+		}
+		cloneRepo := false
+		if cloneRepo {
+			if err := findInRepo(log.WithField("repo", repoURL), writeOutput(output, repoURL), repoURL, repoAuth, pattern); err != nil {
+				log.Warnf("Error in %q: %s", repoURL, err)
 			}
 		}
-
-		if err := findInRepo(log.WithField("repo", repoURL), writeOutput(output, repoURL), repoURL, repoAuth, pattern); err != nil {
-			log.Warnf("Error in %q: %s", repoURL, err)
-		}
-
 		c++
+	}
+
+	if t.Err() != nil {
+		// Loop through the errors to see the details
+		for i, err := range t.Errs() {
+			fmt.Printf("error #%d: %s", i, err)
+		}
+		log.Fatal(t.Err())
 	}
 
 	log.Println("count: ", c)
