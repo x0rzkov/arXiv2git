@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/go-github/v28/github"
@@ -34,8 +35,20 @@ var (
 	query string
 	pattern string
 	debug  bool
+	help bool
 	httpTimeout  time.Duration
+	log *logrus.Logger
 )
+
+func init() {
+		log = &logrus.Logger{
+		Out: os.Stderr,
+		Formatter: &logrus.TextFormatter{
+			DisableTimestamp: true,
+		},
+	}
+
+}
 
 func main() {
 	pflag.StringVarP(&logLevelStr, "log-level", "v", "info", "Logging level.")
@@ -43,8 +56,14 @@ func main() {
 	pflag.StringVarP(&query, "query", "q", "", "query")
 	pflag.StringVarP(&pattern, "pattern", "p", "", "pattern (eg. Dockerfile)")
 	pflag.BoolVarP(&debug, "debug", "d", false, "debug mode")
+	pflag.BoolVarP(&help, "help", "h", false, "help info")
 	pflag.DurationVar(&httpTimeout, "http-timeout", 5*time.Second, "Timeout for HTTP Requests.")
-	pflag.Args()
+	if help {
+		pflag.PrintDefaults()
+		os.Exit(1)
+	}
+	pflag.Parse()
+
 
 	logLevel, err := logrus.ParseLevel(logLevelStr)
 	if err != nil {
@@ -52,13 +71,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	log := &logrus.Logger{
-		Out: os.Stderr,
-		Formatter: &logrus.TextFormatter{
-			DisableTimestamp: true,
-		},
-		Level: logLevel,
-	}
+	log.Level = logLevel
 
 	// args := pflag.Args()
 	// pp.Println(args)
@@ -87,9 +100,11 @@ func main() {
 	output.Write(header)
 	output.Flush()
 
+	pp.Println("token:",token)
+
 	// Setup Github API client, with persistent caching
 	var (
-		cache          = diskcache.New("./data/github-cache")
+		cache          = diskcache.New("./data/github-cache2")
 		cacheTransport = httpcache.NewTransport(cache)
 		tokenSource    = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 		authTransport  = oauth2.Transport{Source: tokenSource, Base: cacheTransport}
@@ -130,7 +145,8 @@ func main() {
 				// time.Sleep(4 * time.Second)
 				// code, resp, err := client.Search.Code(ctx, query, searchOpt)
 				code, resp, err := client.Search.Repositories(ctx, q, searchOpt)
-				sleepIfRateLimitExceeded(ctx, client)
+				// sleepIfRateLimitExceeded(ctx, client)
+				waitForRemainingLimit(client, false, 10)
 				if err != nil {
 					return err
 				}
@@ -174,6 +190,8 @@ func main() {
 		Password: token,
 	}
 
+	patterns := []string{"Dockerfile", "docker-compose"}
+
 	c := 0
 	for repoURL := range reposSet {
 		fmt.Println("repoURL", repoURL)
@@ -187,11 +205,15 @@ func main() {
 			}
 			pp.Println(branches)
 
-			entries, err := getEntries(client, info.Username, info.Name, "master", true)
-			if err != nil {
-				log.Fatal(err)
+			for _, branch := range branches {
+				entries, err := getEntries(client, info.Username, info.Name, branch, true)
+				if err != nil {
+					log.Fatal(err)
+				}
+				// pp.Println(entries)
+				matches := matchPatterns(entries, patterns...)
+				pp.Println(matches)
 			}
-			pp.Println(entries)
 		}
 
 		if err := findInRepo(log.WithField("repo", repoURL), writeOutput(output, repoURL), repoURL, repoAuth, pattern); err != nil {
@@ -205,6 +227,18 @@ func main() {
 
 }
 
+func matchPatterns(list []string, patterns ...string) []string {
+	var matches []string
+	for _, entry := range list {
+		for _, pattern := range patterns {
+			if strings.HasSuffix(entry, pattern) {
+				matches = append(matches, pattern)
+			}
+		}
+	}
+	return matches
+}
+
 func sleepIfRateLimitExceeded(ctx context.Context, client *github.Client) {
 	rateLimit, _, err := client.RateLimits(ctx)
 	if err != nil {
@@ -215,6 +249,35 @@ func sleepIfRateLimitExceeded(ctx context.Context, client *github.Client) {
 	if rateLimit.Search.Remaining == 1 {
 		timeToSleep := rateLimit.Search.Reset.Sub(time.Now()) + time.Second
 		time.Sleep(timeToSleep)
+	}
+}
+
+func waitForRemainingLimit(cl *github.Client, isCore bool, minLimit int) {
+	for {
+		rateLimits, _, err := cl.RateLimits(context.Background())
+		if err != nil {
+			log.Printf("could not access rate limit information: %s\n", err)
+			<-time.After(time.Second * 1)
+			continue
+		}
+
+		var rate int
+		var limit int
+		if isCore {
+			rate = rateLimits.GetCore().Remaining
+			limit = rateLimits.GetCore().Limit
+		} else {
+			rate = rateLimits.GetSearch().Remaining
+			limit = rateLimits.GetSearch().Limit
+		}
+
+		if rate < minLimit {
+			log.Printf("Not enough rate limit: %d/%d/%d\n", rate, minLimit, limit)
+			<-time.After(time.Second * 60)
+			continue
+		}
+		log.Printf("Rate limit: %d/%d\n", rate, limit)
+		break
 	}
 }
 
