@@ -8,6 +8,7 @@ require (
 	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d // indirect
 	github.com/austinorth/flag v1.7.4-pre // indirect
 	github.com/boz/go-throttle v0.0.0-20160922054636-fdc4eab740c1 // indirect
+	github.com/dgraph-io/badger v1.6.0 // indirect
 	github.com/fatih/motion v1.0.0 // indirect
 	github.com/google/btree v1.0.0 // indirect
 	github.com/google/go-github/v28 v28.1.1 // indirect
@@ -15,8 +16,11 @@ require (
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79 // indirect
 	github.com/josharian/impl v0.0.0-20191119165012-6b9658ad00c7 // indirect
 	github.com/k0kubun/pp v3.0.1+incompatible // indirect
+	github.com/mailru/easyjson v0.7.0 // indirect
 	github.com/mattn/go-colorable v0.1.4 // indirect
 	github.com/nozzle/throttler v0.0.0-20180817012639-2ea982251481 // indirect
+	github.com/olivere/elastic v6.2.27+incompatible // indirect
+	github.com/orcaman/concurrent-map v0.0.0-20190826125027-8c72a8bb44f6 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/rogpeppe/godef v1.1.1 // indirect
 	github.com/sirupsen/logrus v1.4.2 // indirect
@@ -29,5 +33,6 @@ require (
 	gopkg.in/alecthomas/gometalinter.v1 v1.2.1 // indirect
 	gopkg.in/alecthomas/kingpin.v3-unstable v3.0.0-20191105091915-95d230a53780 // indirect
 	gopkg.in/fatih/set.v0 v0.2.1 // indirect
+	gopkg.in/olivere/elastic.v6 v6.2.27 // indirect
 	gopkg.in/src-d/go-git.v4 v4.13.1 // indirect
 )

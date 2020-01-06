@@ -1,7 +1,8 @@
 package main
 
 import (
-	// "fmt"
+	 "fmt"
+	"io"
 	"context"
 	"time"
 
@@ -131,7 +132,30 @@ func buildExclusionList(excludedBranches []string, openPRs []*github.PullRequest
 }
 */
 
-func listBranches(client *github.Client, owner string, repoName string) ([]string, error) {
+func getFileContent(client *github.Client, owner, repoName, branch, path string) (io.ReadCloser, error) {
+	content, err := client.Repositories.DownloadContents(context.Background(), owner, repoName, path, &github.RepositoryContentGetOptions{Ref: branch})
+	if err != nil {
+		return nil, err
+	}
+	return content, nil
+}
+
+
+func getReadme(client *github.Client, owner, repoName string) (string, error) {
+	readme, _, err := client.Repositories.GetReadme(context.Background(), owner, repoName, nil)
+	if err != nil {
+		fmt.Println(err)
+		return "", err
+	}
+	content, err := readme.GetContent()
+	if err != nil {
+		fmt.Println(err)
+		return "",err
+	}
+	return content, nil
+}
+
+func listBranches(client *github.Client, owner, repoName string) ([]string, error) {
 	var (
 		branchNames []string
 		resp        = new(github.Response)

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	badger "github.com/dgraph-io/badger"
 	"github.com/google/go-github/v28/github"
 	"github.com/gregjones/httpcache"
 	"github.com/gregjones/httpcache/diskcache"
@@ -26,18 +27,35 @@ import (
 	"gopkg.in/src-d/go-git.v4/plumbing/transport"
 	"gopkg.in/src-d/go-git.v4/storage/memory"
 	"github.com/x0rzkov/go-vcsurl"
+	"github.com/orcaman/concurrent-map"
 	ghttp "gopkg.in/src-d/go-git.v4/plumbing/transport/http"
+	"gopkg.in/olivere/elastic.v6"
 )
 
 var (
 	logLevelStr  string
-	token         string
+	ghUsername string
+	ghToken         string
 	query string
 	pattern string
+	storagePath string
+	cachePath string
+	torProxy bool
+	torProxyAddress string
+	elasticIndex bool
+	elasticAddress string
+	parallelJobs int
+	ghPerPage int
+	ghOrder string
+	ghSort string
+	ghStartYear int
+	ghEndYear int
+	cloneRepo bool
 	debug  bool
 	help bool
 	httpTimeout  time.Duration
 	log *logrus.Logger
+	esClient *elastic.Client
 )
 
 func init() {
@@ -52,18 +70,33 @@ func init() {
 
 func main() {
 	pflag.StringVarP(&logLevelStr, "log-level", "v", "info", "Logging level.")
-	pflag.StringVarP(&token, "token", "t", "", "Github personal token")
+	pflag.StringVarP(&ghUsername, "username", "u", "x0rzkov", "Github username")
+	pflag.StringVarP(&ghToken, "token", "t", "", "Github personal token")
 	pflag.StringVarP(&query, "query", "q", "", "query")
 	pflag.StringVarP(&pattern, "pattern", "p", "", "pattern (eg. Dockerfile)")
+	pflag.StringVarP(&cachePath, "cache-path", "c", "./data/cache", "cache path")
+	pflag.StringVarP(&storagePath, "storage-path", "s", "./data/storage", "storage path")
+	pflag.BoolVarP(&torProxy, "tor-proxy", "", false, "use tor proxy")
+	pflag.StringVarP(&torProxyAddress, "tor-proxy-address", "", "localhost:9050", "tor proxy address")
+	pflag.BoolVarP(&elasticIndex, "elastic-index", "", false, "index content in elasticsearch")
+	pflag.StringVarP(&elasticAddress, "elastic-address", "", "http://localhost:9200", "elasticsearch address")
+	pflag.StringVarP(&ghOrder, "gh-order", "", "desc", "github list option for the order direction of results")
+	pflag.IntVarP(&ghPerPage, "gh-per-page", "", 100, "github list option for the number of entries per page")
+	pflag.StringVarP(&ghSort, "gh-sort", "", "created", "github list option for the sorting filter")
+	pflag.IntVarP(&ghStartYear, "gh-start-year", "", 2007, "github search start year")
+	pflag.IntVarP(&ghEndYear, "gh-end-year", "", 2020, "github search end year")
+	pflag.IntVarP(&parallelJobs, "parallel-jobs", "j", 10, "parallel jobs")
+	pflag.BoolVarP(&cloneRepo, "clone-repo", "", false, "clone repository in memory and to find patterns")
 	pflag.BoolVarP(&debug, "debug", "d", false, "debug mode")
 	pflag.BoolVarP(&help, "help", "h", false, "help info")
 	pflag.DurationVar(&httpTimeout, "http-timeout", 5*time.Second, "Timeout for HTTP Requests.")
+	pflag.Parse()
 	if help {
+		// args := pflag.Args()
+		// pp.Println("args", args)
 		pflag.PrintDefaults()
 		os.Exit(1)
 	}
-	pflag.Parse()
-
 
 	logLevel, err := logrus.ParseLevel(logLevelStr)
 	if err != nil {
@@ -73,8 +106,26 @@ func main() {
 
 	log.Level = logLevel
 
-	// args := pflag.Args()
-	// pp.Println(args)
+	err = ensureDir(storagePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	store, err := badger.Open(badger.DefaultOptions(storagePath))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer store.Close()
+
+	if elasticIndex {
+		esClient, err := elastic.NewClient(elastic.SetURL(elasticAddress), elastic.SetSniff(false))
+		if err != nil {
+			log.Fatal(err)
+		}
+		if debug {
+			pp.Println("elastic new client connected")
+		}
+	}
+
 	// if len(args) == 0 {
 	//	log.Fatal("no patterns passed")
 	// }
@@ -100,13 +151,15 @@ func main() {
 	output.Write(header)
 	output.Flush()
 
-	pp.Println("token:",token)
-
+	err = ensureDir(cachePath)
+	if err != nil {
+		log.Fatal(err)
+	}
 	// Setup Github API client, with persistent caching
 	var (
-		cache          = diskcache.New("./data/github-cache2")
+		cache          = diskcache.New(cachePath)
 		cacheTransport = httpcache.NewTransport(cache)
-		tokenSource    = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
+		tokenSource    = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: ghToken})
 		authTransport  = oauth2.Transport{Source: tokenSource, Base: cacheTransport}
 		client         = github.NewClient(&http.Client{Transport: &authTransport})
 	)
@@ -114,16 +167,19 @@ func main() {
 	ctx := context.Background()
 
 	searchOpt := &github.SearchOptions{
-		Sort:  "created",
-		Order: "desc",
+		Sort:  ghSort,
+		Order: ghOrder,
 		ListOptions: github.ListOptions{
-			PerPage: 100,
+			PerPage: ghPerPage,
 		},
 	}
 
+	// Create a new map.
+
+	m := cmap.New()
 	reposSet := make(map[string]struct{})
 
-	queries := generateDateRange(query, 2020, 2020)
+	queries := generateDateRange(query, ghStartYear, ghEndYear)
 	if debug {
 	pp.Println(queries)
 }
@@ -131,7 +187,9 @@ func main() {
 	t := throttler.New(1, 10000000)
 
 	for _, q := range queries {
-		log.Println("query:", q)
+		if debug {
+			log.Println("query:", q)
+		}
 		currentPage := 1
 		lastPage := 1
 
@@ -152,13 +210,16 @@ func main() {
 				}
 
 				lastPage = resp.LastPage
-				log.Println("visiting", resp.Request.URL.String())
+				if debug {
+					log.Println("visiting", resp.Request.URL.String())
+				}
 				// log.Println("lastPage: ", resp.LastPage, "nextPage: ", resp.NextPage, "currentPage", currentPage, "lastPage", lastPage)
 				// for _, cr := range code.CodeResults {
 				for _, cr := range code.Repositories {
 					repoURL := *cr.HTMLURL
 					if _, ok := reposSet[repoURL]; !ok {
 						reposSet[repoURL] = struct{}{}
+						m.Set(repoURL, struct{}{})
 					}
 				}
 				currentPage++
@@ -180,49 +241,54 @@ func main() {
 	if t.Err() != nil {
 		// Loop through the errors to see the details
 		for i, err := range t.Errs() {
-			fmt.Printf("error #%d: %s", i, err)
+			log.Printf("error #%d: %s", i, err)
 		}
 		log.Fatal(t.Err())
 	}
 
 	repoAuth := &ghttp.BasicAuth{
-		Username: "x0rzkov",
-		Password: token,
+		Username: ghUsername,
+		Password: ghToken,
 	}
 
-	patterns := []string{"Dockerfile", "docker-compose"}
+	patterns := []string{"Dockerfile", "docker-compose.yml", "docker-sync.yml", "crane.yml"}
 
+	t = throttler.New(parallelJobs, len(reposSet))
 	c := 0
+	n := 0
 	for repoURL := range reposSet {
 		fmt.Println("repoURL", repoURL)
 		log.Infof("Searching: %s", repoURL)
 		if info, err := vcsurl.Parse(repoURL); err == nil {
-			go func(username, name string) error {
+			go func(repoURL, username, name string) error {
 				// Let Throttler know when the goroutine completes
 				// so it can dispatch another worker
 				defer t.Done(nil)
 				branches, err := listBranches(client, username, name)
 				if err != nil {
-					log.Fatal(err)
+					// log.Fatal(err)
 					return err
 				}
 				for _, branch := range branches {
 					entries, err := getEntries(client, info.Username, info.Name, branch, true)
 					if err != nil {
-						log.Fatal(err)
+						// log.Fatal(err)
 						return err
 					}
 					// pp.Println(entries)
-					matches := matchPatterns(entries, patterns...)
+					matches := matchPatterns(branch, entries, patterns...)
 					if len(matches) > 0 {
 						pp.Println(matches)
+						n = n + len(matches)
 					}
+					readme, _ := getReadme(client, info.Username, info.Name)
+					fmt.Println(readme)
+					writeOutput(output, repoURL)
 				}
 				return nil
-			}(info.Username, info.Name)
+			}(repoURL, info.Username, info.Name)
 			t.Throttle()
 		}
-		cloneRepo := false
 		if cloneRepo {
 			if err := findInRepo(log.WithField("repo", repoURL), writeOutput(output, repoURL), repoURL, repoAuth, pattern); err != nil {
 				log.Warnf("Error in %q: %s", repoURL, err)
@@ -239,21 +305,33 @@ func main() {
 		log.Fatal(t.Err())
 	}
 
-	log.Println("count: ", c)
+	log.Println("total found: ", c, "total match", n)
 
 }
 
-func matchPatterns(list []string, patterns ...string) []string {
+func matchPatterns(branch string, list []string, patterns ...string) []string {
 	var matches []string
 	for _, entry := range list {
 		for _, pattern := range patterns {
 			if strings.HasSuffix(entry, pattern) {
-				matches = append(matches, pattern)
+				matches = append(matches, branch + "::" + entry)
 			}
 		}
 	}
 	return matches
 }
+
+func ensureDir(path string) error {
+	d, err := os.Open(path)
+	if err != nil {
+		os.MkdirAll(path, os.FileMode(0755))
+	} else {
+		return err
+	}
+	d.Close()
+	return nil
+}
+
 
 func sleepIfRateLimitExceeded(ctx context.Context, client *github.Client) {
 	rateLimit, _, err := client.RateLimits(ctx)
@@ -356,23 +434,19 @@ func walkInfo(log logrus.FieldLogger, output outputFunc, fs billy.Filesystem, ba
 			}
 			continue
 		}
-
 		if err := findInFile(log.WithField("file", name), output, fs, name, pattern); err != nil {
 			log.Warnf("error finding in %q: %s", name, err)
 		}
 	}
-
 	return nil
 }
 
 func findInDir(log logrus.FieldLogger, output outputFunc, fs billy.Filesystem, dir string, pattern *regexp.Regexp) error {
 	log.Debugf("dir: %s", dir)
-
 	subDir, err := fs.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("can not list %q: %s", dir, err)
 	}
-
 	return walkInfo(log, output, fs, dir, subDir, pattern)
 }
 
@@ -382,7 +456,6 @@ func findInFile(log logrus.FieldLogger, output outputFunc, fs billy.Filesystem, 
 	if err != nil {
 		return fmt.Errorf("can not read %q: %s", name, err)
 	}
-
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
