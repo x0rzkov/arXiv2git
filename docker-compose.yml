@@ -1,0 +1,34 @@
+---
+version: '3.7'
+services:
+
+  arxiv2git-go:
+    container_name: arxiv2git-go
+    build: ./golang
+    volumes:
+    - arxiv2git-data:/opt/app/data
+    command: ["all"]
+
+  arxiv2git-py:
+    container_name: arxiv2git-py
+    build: ./python
+    volumes:
+    - arxiv2git-data:/opt/app/data
+    command: ["all"]
+
+  tor-privoxy:
+    container_name: twint-torprivoxy
+    image: dockage/tor-privoxy:latest
+    ports:
+    - "9050:9050" # Tor proxy
+    - "9051:9051" # Tor control port
+    - "8118:8118" # Privoxy 
+
+volumes:
+  arxiv2git-data:
+    driver: local
+
+networks:
+  default:
+    external:
+      name: arxiv2git
