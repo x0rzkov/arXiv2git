@@ -38,7 +38,6 @@ params = {
 }
 params.update(login_params)
 
-
 _total_count = None
 
 def grab(url, params):
@@ -112,7 +111,7 @@ def reduce_item(item):
 
 
 
-os.system('mkdir -p data data/repos')
+os.system('mkdir -p ../data ../data/repos')
 
 years = range(2007, current_year+1)
 months = range(1,13)
@@ -132,7 +131,7 @@ for year,month in INPUT_ITR:
     assert(_total_count == len(results))
     print " {} results found".format(len(results))
 
-    f_out = 'data/repos/{}_{}.json'.format(year,month)
+    f_out = '../data/repos/{}_{}.json'.format(year,month)
     with open(f_out,'w') as FOUT:
         s = json.dumps(results,indent=2)
         FOUT.write(s)

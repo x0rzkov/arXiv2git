@@ -14,12 +14,12 @@ current_month = date.today().month
 from utils import get_login_params
 login_params = get_login_params()
 
-os.system('mkdir -p data data/readme')
+os.system('mkdir -p ../data ../data/readme')
 
 clone_cmd = 'git clone --depth 1 {url} {dest}'
 
 def repo_iter():
-    gb = os.path.join('data','repos','*.json')
+    gb = os.path.join('..', 'data','repos','*.json')
     F_REPO = glob.glob(gb)
 
     for f in F_REPO:
@@ -29,7 +29,7 @@ def repo_iter():
             yield item
 
 def get_filename(id):
-    return os.path.join('data','readme','{}.json'.format(id))
+    return os.path.join('..', 'data','readme','{}.json'.format(id))
 
 def update_needed(id):
     f_readme = get_filename(id)
@@ -38,12 +38,11 @@ def update_needed(id):
     return False
 
 def gather_readme(item):
-
     # Clear the space
-    os.system('rm -rf tmp')
+    os.system('rm -rf ../tmp')
 
     # Clone the repo
-    cmd = clone_cmd.format(url=item["git_url"],dest="tmp")
+    cmd = clone_cmd.format(url=item["git_url"],dest="../tmp")
     os.system(cmd)
 
     # Find the matching files
@@ -53,7 +52,7 @@ def gather_readme(item):
 
     data = {}
     for f in F_README:
-        f = os.path.join('tmp',f)
+        f = os.path.join('..', 'tmp',f)
 
         if os.path.isdir(f):
             continue
@@ -64,7 +63,7 @@ def gather_readme(item):
             data[os.path.basename(f)] = val
 
     # Clear the space
-    os.system('rm -rf tmp')
+    os.system('rm -rf ../tmp')
     
     return data
 

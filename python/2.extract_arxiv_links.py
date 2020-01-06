@@ -4,8 +4,10 @@ import json
 import string
 import collections
 
-F_JSON = sorted(glob.glob("data/readme/*.json"))
-F_REPO = sorted(glob.glob("data/repos/*.json"))
+dataPath = "/opt/app/data"
+
+F_JSON = sorted(glob.glob("../data/readme/*.json"))
+F_REPO = sorted(glob.glob("../data/repos/*.json"))
 output_dir = 'a2g-links'
 
 # Build a lookup table
