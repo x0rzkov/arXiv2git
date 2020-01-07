@@ -17,6 +17,7 @@ require (
 	github.com/mailru/easyjson v0.7.0 // indirect
 	github.com/mattn/go-colorable v0.1.4 // indirect
 	github.com/nozzle/throttler v0.0.0-20180817012639-2ea982251481
+	github.com/olekukonko/tablewriter v0.0.4 // indirect
 	github.com/olivere/elastic v6.2.27+incompatible // indirect
 	github.com/orcaman/concurrent-map v0.0.0-20190826125027-8c72a8bb44f6
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect

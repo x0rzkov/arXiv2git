@@ -14,6 +14,7 @@ import (
 	"github.com/gocolly/colly/v2/proxy"
 	"github.com/gocolly/colly/v2/queue"
 	"github.com/golang/snappy"
+	// "github.com/k0kubun/pp"
 )
 
 type Search struct {
@@ -140,8 +141,33 @@ func searchDockerHub(filePath string) {
 		colly.CacheDir("./data/cache"),
 	)
 
+	p := NewProxy(service)
+
+	if err := p.Execute(5); err != nil {
+		fmt.Print(err)
+		/* return */
+	}
+
+	//if p.success == 0 {
+	//	return
+	//}
+
+	p.Sort("speed")
+
+	proxies := p.ToSlice()
+
 	if torProxy {
-		rp, err := proxy.RoundRobinProxySwitcher("socks5://127.0.0.1:9050")
+		proxies = []string{"sock5://localhost:9050"}
+	}
+
+	proxyFallback, err := getProxy()
+	if err != nil {
+		log.Fatal(err)
+	}
+	proxies = append(proxies, proxyFallback.String())
+
+	if len(proxies) > 0 {
+		rp, err := proxy.RoundRobinProxySwitcher(proxies...)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -150,7 +176,7 @@ func searchDockerHub(filePath string) {
 
 	// create a request queue with 2 consumer threads
 	q, _ := queue.New(
-		4, // Number of consumer threads
+		1, // Number of consumer threads
 		&queue.InMemoryQueueStorage{MaxSize: 1500000}, // Use default queue storage
 	)
 
@@ -163,13 +189,14 @@ func searchDockerHub(filePath string) {
 
 	// Set error handler
 	c.OnError(func(r *colly.Response, err error) {
-		fmt.Println("Request URL:", r.Request.URL, "failed with response:", r.StatusCode, "\nError:", err)
+		// fmt.Println("Request URL:", r.Request.URL, "failed with response:", r.StatusCode, "\nError:", err)
+		q.AddURL(r.Request.URL.String())
 	})
 
 	c.OnResponse(func(r *colly.Response) {
-		if torProxy {
-			log.Printf("Proxy Address: %s\n", r.Request.ProxyURL)
-		}
+		//if torProxy {
+		//	log.Printf("Proxy Address: %s\n", r.Request.ProxyURL)
+		//}
 		// fmt.Println("r.Ctx.Get(\"url\")", r.Ctx.Get("url"))
 		currentPage := 1
 
@@ -194,7 +221,7 @@ func searchDockerHub(filePath string) {
 					percentageLoss := count * 100 / skipped
 					log.Println("indexing [", count, " / ", skipped, " / ", visited, " / ", percentageLoss, "%] dockerfile to key:", image+"/dockerfile-content")
 					// log.Println("dockerfile: \n", dockerfile.Contents)
-					err := txn.Set([]byte(image+"/dockerfile-content"), []byte(dockerfile.Contents))
+					err := txn.Set([]byte("hub.docker.com/"+image+"/dockerfile-content"), []byte(dockerfile.Contents))
 					if err == nil {
 						count++
 					}
@@ -278,7 +305,7 @@ func searchDockerHub(filePath string) {
 		// log.Printf("%s\n", bytes.Replace(r.Body, []byte("\n"), nil, -1))
 	})
 
-	for _, keyword := range search.Keywords {
+	for _, keyword := range shuffle(search.Keywords) {
 		// Add URLs to the queue
 		q.AddURL(fmt.Sprintf("https://index.docker.io/v1/search?q=%s&n=1000", keyword))
 	}

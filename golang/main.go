@@ -139,14 +139,16 @@ func main() {
 	// os.Exit(1)
 	// iterateStoreKV()
 	// os.Exit(1)
-	counter, errors, err := countDockerfiles("../datasets")
-	if err != nil {
-		log.Fatalf("Can not count: %s", err)
-	} else {
-		pp.Println("dockerfiles count: ", counter)
-		pp.Println("dockerfiles errors: ", errors)
-	}
-	searchDockerHub("search-vsoch.json")
+	/*
+		counter, errors, err := countDockerfiles("../datasets")
+		if err != nil {
+			log.Fatalf("Can not count: %s", err)
+		} else {
+			pp.Println("dockerfiles count: ", counter)
+			pp.Println("dockerfiles errors: ", errors)
+		}
+	*/
+	searchDockerHub("search-terms.json")
 	iterateStoreKV()
 
 	// if len(args) == 0 {
