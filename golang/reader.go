@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
+	"path/filepath"
 	"strings"
 
 	badger "github.com/dgraph-io/badger"
@@ -38,8 +40,22 @@ func iterateStoreKV() {
 			item := it.Item()
 			k := item.Key()
 			err := item.Value(func(v []byte) error {
-				if strings.HasSuffix(string(k), "/dockerfile-content") {
-					fmt.Printf("key=%s, value=%s\n", k, v)
+				if strings.HasSuffix(string(k), "//dockerfile-content") {
+					// vStr, err := decompress(v)
+					// if err != nil {
+					// 	return err
+					// }
+					outputDir := fmt.Sprintf("%s", strings.Replace(string(k), "//dockerfile-content", "", -1))
+					outputDir = filepath.Join("..", "datasets", "hub.docker.com", outputDir)
+					fmt.Printf("key=%s, outputDir=%s, value=%s\n", k, outputDir, v)
+					err := ensureDir(outputDir)
+					if err != nil {
+						return err
+					}
+					err = ioutil.WriteFile(outputDir+"/Dockerfile", v, 0755)
+					if err != nil {
+						return err
+					}
 				}
 				return nil
 			})

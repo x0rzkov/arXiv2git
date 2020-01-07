@@ -137,6 +137,8 @@ func main() {
 
 	// iterateStoreKeys()
 	// os.Exit(1)
+	iterateStoreKV()
+	os.Exit(1)
 	searchDockerHub("search-terms.json")
 	iterateStoreKeys()
 
