@@ -150,7 +150,7 @@ func searchDockerHub(filePath string) {
 
 	// create a request queue with 2 consumer threads
 	q, _ := queue.New(
-		64, // Number of consumer threads
+		4, // Number of consumer threads
 		&queue.InMemoryQueueStorage{MaxSize: 1500000}, // Use default queue storage
 	)
 

@@ -139,7 +139,8 @@ func main() {
 	// os.Exit(1)
 	// iterateStoreKV()
 	// os.Exit(1)
-	searchDockerHub("search-terms.json")
+	countDockerfiles("../datasets")
+	searchDockerHub("search-vsoch.json")
 	iterateStoreKV()
 
 	// if len(args) == 0 {
@@ -147,7 +148,7 @@ func main() {
 	// }
 
 	// patternStr := strings.Join(args, " ")
-	patternStr := "Dockerfile"
+	patternStr := "Dockerfile*"
 	pattern, err := regexp.Compile(patternStr)
 	if err != nil {
 		log.Fatalf("Can not parse %q: %s", patternStr, err)
