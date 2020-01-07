@@ -27,3 +27,18 @@ tmp/**
 # Dependency directories (remove the comment below to include it)
 # vendor/
 .env
+
+golang/data
+golang/data/
+golang/data/*
+golang/data/**
+
+golang/vendor
+golang/vendor/
+golang/vendor/*
+golang/vendor/**
+
+python/data
+python/data/
+python/data/*
+python/data/**

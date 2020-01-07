@@ -4,8 +4,10 @@ go 1.13
 
 require (
 	github.com/dgraph-io/badger v1.6.0
+	github.com/dyninc/qstring v0.0.0-20160719172318-ab5840a88e81 // indirect
 	github.com/fortytw2/leaktest v1.3.0 // indirect
 	github.com/gocolly/colly/v2 v2.0.1
+	github.com/golang/snappy v0.0.1 // indirect
 	github.com/google/btree v1.0.0 // indirect
 	github.com/google/go-github/v28 v28.1.1
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79

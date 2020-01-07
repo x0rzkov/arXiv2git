@@ -4,13 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"strings"
 
 	badger "github.com/dgraph-io/badger"
+	"github.com/dyninc/qstring"
 	"github.com/gocolly/colly/v2"
 	"github.com/gocolly/colly/v2/proxy"
 	"github.com/gocolly/colly/v2/queue"
+	"github.com/golang/snappy"
 )
 
 type Search struct {
@@ -27,8 +30,8 @@ type DockerResults struct {
 
 type DockerImage struct {
 	Description string
-	IsOfficial  bool `json:"is_official"`
-	IsTrusted   bool `json:"is_trusted"`
+	IsOfficial  bool   `json:"is_official"`
+	IsTrusted   bool   `json:"is_trusted"`
 	Name        string `json:"name"`
 	StarCount   int    `json:"star_count"`
 	Dockerfile  string `json:"dockerfile"`
@@ -108,10 +111,11 @@ type DockerBuildObject struct {
 	UUID          string   `json:"uuid"`
 }
 
+func searchDockerHub(filePath string) {
 
-func searchDockerHub() {
+	count := 1
 	// Open our jsonFile
-	filePath := "search-terms.json"
+	// filePath := "search-terms.json"
 	jsonFile, err := os.Open(filePath)
 	// if we os.Open returns an error then handle it
 	if err != nil {
@@ -146,20 +150,31 @@ func searchDockerHub() {
 
 	// create a request queue with 2 consumer threads
 	q, _ := queue.New(
-		10, // Number of consumer threads
+		64, // Number of consumer threads
 		&queue.InMemoryQueueStorage{MaxSize: 1500000}, // Use default queue storage
 	)
 
+	visited := 1
+	skipped := 1
 	c.OnRequest(func(r *colly.Request) {
-		fmt.Println("visiting", r.URL)
+		// log.Println("visiting", r.URL)
+		visited++
 	})
 
 	c.OnResponse(func(r *colly.Response) {
 		if torProxy {
 			log.Printf("Proxy Address: %s\n", r.Request.ProxyURL)
 		}
-		fmt.Println(r.Ctx.Get("url"))
+		// fmt.Println("r.Ctx.Get(\"url\")", r.Ctx.Get("url"))
 		currentPage := 1
+
+		// userInfo
+		// if strings.HasPrefix(r.Request.URL.String(), "https://hub.docker.com/v2/users") {
+		// }
+
+		// vcsInfo
+		// if strings.HasPrefix(r.Request.URL.String(), "https://hub.docker.com/api/build/v1/source/?image=") {
+		// }
 
 		if strings.HasPrefix(r.Request.URL.String(), "https://hub.docker.com/v2/repositories") {
 			var dockerfile DockerFile
@@ -171,14 +186,20 @@ func searchDockerHub() {
 			image = strings.Replace(image, "dockerfile/", "", -1)
 			if dockerfile.Contents != "" {
 				err = store.Update(func(txn *badger.Txn) error {
-					log.Println("indexing dockerfile ", image)
+					percentageLoss := count * 100 / skipped
+					log.Println("indexing [", count, " / ", skipped, " / ", visited, " / ", percentageLoss, "%] dockerfile to key:", image+"/dockerfile-content")
 					// log.Println("dockerfile: \n", dockerfile.Contents)
 					err := txn.Set([]byte(image+"/dockerfile-content"), []byte(dockerfile.Contents))
+					if err == nil {
+						count++
+					}
 					return err
 				})
 				if err != nil {
 					log.Fatalln("error badger", err)
 				}
+			} else {
+				skipped++
 			}
 			return
 		}
@@ -189,16 +210,40 @@ func searchDockerHub() {
 		lastPage := res.LastPage
 		for _, result := range res.Results {
 			dockerfile := fmt.Sprintf("https://hub.docker.com/v2/repositories/%s/dockerfile/", result.Name)
-			// log.Println("enqueuing dockerfile", dockerfile)
+			// log.Println("enqueue dockerfile info", dockerfile)
 			q.AddURL(dockerfile)
 			err := store.Update(func(txn *badger.Txn) error {
-				// log.Println("indexing ", result.Name)
-				err := txn.Set([]byte(result.Name), []byte(result.Description))
+				// log.Println("indexing dockerimage", result.Name)
+				cnt, err := compress([]byte(result.Description))
+				if err != nil {
+					return err
+				}
+				err = txn.Set([]byte(result.Name), cnt)
 				return err
 			})
 			if err != nil {
 				log.Fatalln("error badger", err)
 			}
+
+			// user info
+			// https://hub.docker.com/v2/users/aaronshaf/
+			repoInfo := strings.Split(result.Name, "/")
+			users := fmt.Sprintf("https://hub.docker.com/v2/users/%s/", repoInfo[0])
+			// log.Println("enqueue docker userinfo", users)
+			q.AddURL(users)
+
+			// github info
+			// https://hub.docker.com/api/build/v1/source/?image=byrnedo%2Falpine-curl
+			vcsInfo := fmt.Sprintf("https://hub.docker.com/api/build/v1/source/?image=%s", result.Name)
+			// log.Println("enqueue docker user vcsInfo", vcsInfo)
+			q.AddURL(vcsInfo)
+
+			// docker info
+			// https://hub.docker.com/v2/repositories/aaronshaf/dynamodb-admin/
+			repositories := fmt.Sprintf("https://hub.docker.com/v2/repositories/%s/", result.Name)
+			// log.Println("enqueue repositories", repositories)
+			q.AddURL(repositories)
+
 		}
 
 		for currentPage <= lastPage {
@@ -207,11 +252,18 @@ func searchDockerHub() {
 			if nil == err {
 				lastPage = res.LastPage
 				// fmt.Println(fmt.Sprintf("%s&page=%v", r.Request.URL, currentPage))
-				q.AddURL(fmt.Sprintf("%s&page=%v", r.Request.URL, currentPage))
+				if !strings.Contains(r.Request.URL.String(), "page=") {
+					url := fmt.Sprintf("%s&page=%v", r.Request.URL, currentPage)
+					urlSanitized, err := sanitizeQuery(url)
+					if err != nil {
+						log.Fatalln("error urlSanitized", err)
+					}
+					q.AddURL(urlSanitized)
+				}
 				// c.Images = append(c.Images, res.Results...)
 				// c.Results = append(c.Results, res.Results...)
 			} else {
-				fmt.Println("error: ", string(r.Body))
+				log.Println("error: ", string(r.Body))
 				log.Fatalln("error json", err)
 			}
 			currentPage++
@@ -229,3 +281,32 @@ func searchDockerHub() {
 
 }
 
+func compress(data []byte) ([]byte, error) {
+	return snappy.Encode([]byte{}, data), nil
+}
+
+func decompress(data []byte) ([]byte, error) {
+	return snappy.Decode([]byte{}, data)
+}
+
+// Query is the http request query struct.
+type Query struct {
+	Q    string
+	N    int
+	Page int
+}
+
+func sanitizeQuery(href string) (string, error) {
+	query := &Query{}
+	u, err := url.Parse(href)
+	if err != nil {
+		return "", err
+	}
+	err = qstring.Unmarshal(u.Query(), query)
+	if err != nil {
+		return "", err
+	}
+	q, err := qstring.MarshalString(query)
+	href = fmt.Sprintf("https://index.docker.io/v1/search?%s", q)
+	return href, nil
+}

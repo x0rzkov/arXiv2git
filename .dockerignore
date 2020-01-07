@@ -139,10 +139,17 @@ data
 data/
 data/*
 data/**
+
 golang/data
 golang/data/
 golang/data/*
 golang/data/**
+
+golang/vendor
+golang/vendor/
+golang/vendor/*
+golang/vendor/**
+
 python/data
 python/data/
 python/data/*

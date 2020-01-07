@@ -18,52 +18,54 @@ import (
 	"github.com/gregjones/httpcache/diskcache"
 	"github.com/k0kubun/pp"
 	"github.com/nozzle/throttler"
+	"github.com/orcaman/concurrent-map"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/oauth2"
 	"github.com/spf13/pflag"
+	"github.com/x0rzkov/go-vcsurl"
+	"golang.org/x/oauth2"
+	"gopkg.in/olivere/elastic.v6"
 	"gopkg.in/src-d/go-billy.v4"
 	"gopkg.in/src-d/go-billy.v4/memfs"
 	"gopkg.in/src-d/go-git.v4"
 	"gopkg.in/src-d/go-git.v4/plumbing/transport"
-	"gopkg.in/src-d/go-git.v4/storage/memory"
-	"github.com/x0rzkov/go-vcsurl"
-	"github.com/orcaman/concurrent-map"
 	ghttp "gopkg.in/src-d/go-git.v4/plumbing/transport/http"
-	"gopkg.in/olivere/elastic.v6"
+	"gopkg.in/src-d/go-git.v4/storage/memory"
 )
 
 var (
-	logLevelStr  string
-	configFile string
-	ghUsername string
+	logLevelStr     string
+	configFile      string
+	ghUsername      string
 	ghToken         string
-	query string
-	pattern string
-	storagePath string
-	cachePath string
-	outputPath string
-	prefixPath string
-	torProxy bool
+	query           string
+	pattern         string
+	storagePath     string
+	cachePath       string
+	outputPath      string
+	prefixPath      string
+	torProxy        bool
 	torProxyAddress string
-	elasticIndex bool
-	elasticAddress string
-	parallelJobs int
-	ghPerPage int
-	ghOrder string
-	ghSort string
-	ghStartYear int
-	ghEndYear int
-	cloneRepo bool
-	debug  bool
-	help bool
-	httpTimeout  time.Duration
-	log *logrus.Logger
-	esClient *elastic.Client
-	store *badger.DB
+	elasticIndex    bool
+	elasticAddress  string
+	parallelJobs    int
+	ghPerPage       int
+	ghOrder         string
+	ghSort          string
+	ghStartYear     int
+	ghEndYear       int
+	cloneRepo       bool
+	debug           bool
+	help            bool
+	httpTimeout     time.Duration
+	log             *logrus.Logger
+	esClient        *elastic.Client
+	store           *badger.DB
 )
 
+// go run *.go --token=$GITHUB_TOKEN --query="arxiv in:description,readme fork:false"
+
 func init() {
-		log = &logrus.Logger{
+	log = &logrus.Logger{
 		Out: os.Stderr,
 		Formatter: &logrus.TextFormatter{
 			DisableTimestamp: true,
@@ -133,6 +135,11 @@ func main() {
 		}
 	}
 
+	// iterateStoreKeys()
+	// os.Exit(1)
+	searchDockerHub("search-terms.json")
+	iterateStoreKeys()
+
 	// if len(args) == 0 {
 	//	log.Fatal("no patterns passed")
 	// }
@@ -143,7 +150,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Can not parse %q: %s", patternStr, err)
 	}
-	log.Infof("Pattern: %s", pattern)	
+	log.Infof("Pattern: %s", pattern)
 
 	header := []string{"repo", "file"}
 	if pattern.NumSubexp() == 0 {
@@ -188,8 +195,8 @@ func main() {
 
 	queries := generateDateRange(query, ghStartYear, ghEndYear)
 	if debug {
-	pp.Println(queries)
-}
+		pp.Println(queries)
+	}
 
 	t := throttler.New(1, 10000000)
 
@@ -321,7 +328,7 @@ func matchPatterns(branch string, list []string, patterns ...string) []string {
 	for _, entry := range list {
 		for _, pattern := range patterns {
 			if strings.HasSuffix(entry, pattern) {
-				matches = append(matches, branch + "::" + entry)
+				matches = append(matches, branch+"::"+entry)
 			}
 		}
 	}
@@ -338,7 +345,6 @@ func ensureDir(path string) error {
 	d.Close()
 	return nil
 }
-
 
 func sleepIfRateLimitExceeded(ctx context.Context, client *github.Client) {
 	rateLimit, _, err := client.RateLimits(ctx)
@@ -389,7 +395,6 @@ func generateDateRange(query string, startYear, endYear int) (queries []string) 
 	}
 	return
 }
-
 
 type outputFunc func(fileName, line string, match []string)
 
