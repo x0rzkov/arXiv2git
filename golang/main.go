@@ -137,10 +137,10 @@ func main() {
 
 	// iterateStoreKeys()
 	// os.Exit(1)
-	iterateStoreKV()
-	os.Exit(1)
+	// iterateStoreKV()
+	// os.Exit(1)
 	searchDockerHub("search-terms.json")
-	iterateStoreKeys()
+	iterateStoreKV()
 
 	// if len(args) == 0 {
 	//	log.Fatal("no patterns passed")
@@ -299,6 +299,9 @@ func main() {
 					}
 					readme, _ := getReadme(client, info.Username, info.Name)
 					fmt.Println(readme)
+					topics, _ := getTopics(client, info.Username, info.Name)
+					fmt.Println(topics)
+
 					writeOutput(output, repoURL)
 				}
 				return nil

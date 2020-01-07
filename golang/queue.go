@@ -161,6 +161,11 @@ func searchDockerHub(filePath string) {
 		visited++
 	})
 
+	// Set error handler
+	c.OnError(func(r *colly.Response, err error) {
+		fmt.Println("Request URL:", r.Request.URL, "failed with response:", r, "\nError:", err)
+	})
+
 	c.OnResponse(func(r *colly.Response) {
 		if torProxy {
 			log.Printf("Proxy Address: %s\n", r.Request.ProxyURL)
@@ -198,6 +203,26 @@ func searchDockerHub(filePath string) {
 				if err != nil {
 					log.Fatalln("error badger", err)
 				}
+
+				// user info
+				// https://hub.docker.com/v2/users/aaronshaf/
+				repoInfo := strings.Split(image, "/")
+				users := fmt.Sprintf("https://hub.docker.com/v2/users/%s/", repoInfo[0])
+				// log.Println("enqueue docker userinfo", users)
+				q.AddURL(users)
+
+				// github info
+				// https://hub.docker.com/api/build/v1/source/?image=byrnedo%2Falpine-curl
+				vcsInfo := fmt.Sprintf("https://hub.docker.com/api/build/v1/source/?image=%s/%s", repoInfo[0], repoInfo[1])
+				// log.Println("enqueue docker user vcsInfo", vcsInfo)
+				q.AddURL(vcsInfo)
+
+				// docker info
+				// https://hub.docker.com/v2/repositories/aaronshaf/dynamodb-admin/
+				repositories := fmt.Sprintf("https://hub.docker.com/v2/repositories/%s/%s/", repoInfo[0], repoInfo[1])
+				// log.Println("enqueue repositories", repositories)
+				q.AddURL(repositories)
+
 			} else {
 				skipped++
 			}
@@ -224,25 +249,6 @@ func searchDockerHub(filePath string) {
 			if err != nil {
 				log.Fatalln("error badger", err)
 			}
-
-			// user info
-			// https://hub.docker.com/v2/users/aaronshaf/
-			repoInfo := strings.Split(result.Name, "/")
-			users := fmt.Sprintf("https://hub.docker.com/v2/users/%s/", repoInfo[0])
-			// log.Println("enqueue docker userinfo", users)
-			q.AddURL(users)
-
-			// github info
-			// https://hub.docker.com/api/build/v1/source/?image=byrnedo%2Falpine-curl
-			vcsInfo := fmt.Sprintf("https://hub.docker.com/api/build/v1/source/?image=%s", result.Name)
-			// log.Println("enqueue docker user vcsInfo", vcsInfo)
-			q.AddURL(vcsInfo)
-
-			// docker info
-			// https://hub.docker.com/v2/repositories/aaronshaf/dynamodb-admin/
-			repositories := fmt.Sprintf("https://hub.docker.com/v2/repositories/%s/", result.Name)
-			// log.Println("enqueue repositories", repositories)
-			q.AddURL(repositories)
 
 		}
 
