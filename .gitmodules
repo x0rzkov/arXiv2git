@@ -1,3 +1,6 @@
 [submodule "dataset"]
 	path = dataset
 	url = git@github.com:x0rzkov/dockerfiles-search.git
+[submodule "datasets"]
+	path = datasets
+	url = git@github.com:x0rzkov/dockerfiles-search.git
