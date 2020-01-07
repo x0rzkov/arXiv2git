@@ -16,8 +16,8 @@ func countDockerfiles(dirname string) (int, int, error) {
 	errors := 0
 	err := godirwalk.Walk(dirname, &godirwalk.Options{
 		Callback: func(osPathname string, de *godirwalk.Dirent) error {
-			log.Printf("%s %s\n", de.ModeType(), osPathname)
 			if de.ModeType() != os.ModeDir {
+				log.Printf("%s %s\n", de.ModeType(), osPathname)
 				count++
 			}
 			return nil

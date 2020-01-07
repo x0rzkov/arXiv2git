@@ -163,7 +163,7 @@ func searchDockerHub(filePath string) {
 
 	// Set error handler
 	c.OnError(func(r *colly.Response, err error) {
-		fmt.Println("Request URL:", r.Request.URL, "failed with response:", r, "\nError:", err)
+		fmt.Println("Request URL:", r.Request.URL, "failed with response:", r.StatusCode, "\nError:", err)
 	})
 
 	c.OnResponse(func(r *colly.Response) {
