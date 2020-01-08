@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +16,9 @@ func countDockerfiles(dirname string) (int, int, error) {
 	err := godirwalk.Walk(dirname, &godirwalk.Options{
 		Callback: func(osPathname string, de *godirwalk.Dirent) error {
 			if de.ModeType() != os.ModeDir {
-				log.Printf("%s %s\n", de.ModeType(), osPathname)
+				if debug {
+					log.Printf("%s %s\n", de.ModeType(), osPathname)
+				}
 				count++
 			}
 			return nil
@@ -77,10 +78,19 @@ func iterateStoreKV() {
 					if err != nil {
 						return err
 					}
-					err = ioutil.WriteFile(outputDir+"/Dockerfile", v, 0755)
+					// err = ioutil.WriteFile(outputDir+"/Dockerfile", v, 0755)
+					f, err := os.Create(outputDir + "/Dockerfile")
 					if err != nil {
 						return err
 					}
+					bytes, err := f.Write(v)
+					if err != nil {
+						return err
+					}
+					fmt.Printf("wrote %d bytes\n", bytes)
+					f.Sync()
+					f.Close()
+
 				}
 				return nil
 			})
