@@ -14,7 +14,7 @@ import (
 	"github.com/gocolly/colly/v2/proxy"
 	"github.com/gocolly/colly/v2/queue"
 	"github.com/golang/snappy"
-	// "github.com/k0kubun/pp"
+	"github.com/k0kubun/pp"
 )
 
 type Search struct {
@@ -141,68 +141,82 @@ func searchDockerHub(filePath string) {
 		colly.CacheDir("./data/cache"),
 	)
 
-	p := NewProxy(service)
+	withProxies := false
+	if withProxies {
+		p := NewProxy(service)
 
-	if err := p.Execute(5); err != nil {
-		fmt.Print(err)
-		/* return */
-	}
+		if err := p.Execute(10); err != nil {
+			fmt.Print(err)
+			/* return */
+		}
 
-	//if p.success == 0 {
-	//	return
-	//}
+		p.Sort("speed")
+		proxies := p.ToSlice()
 
-	p.Sort("speed")
+		if torProxy {
+			proxies = []string{"sock5://localhost:9050"}
+		}
 
-	proxies := p.ToSlice()
-
-	if torProxy {
-		proxies = []string{"sock5://localhost:9050"}
-	}
-
-	proxyFallback, err := getProxy()
-	if err != nil {
-		log.Fatal(err)
-	}
-	proxies = append(proxies, proxyFallback.String())
-
-	if len(proxies) > 0 {
-		rp, err := proxy.RoundRobinProxySwitcher(proxies...)
+		proxyFallback, err := getProxy()
 		if err != nil {
 			log.Fatal(err)
 		}
-		c.SetProxyFunc(rp)
+		proxies = append(proxies, proxyFallback.String())
+
+		if len(proxies) > 0 {
+			if debug {
+				pp.Println("proxies: ", proxies)
+			}
+			rp, err := proxy.RoundRobinProxySwitcher(proxies...)
+			if err != nil {
+				log.Fatal(err)
+			}
+			c.SetProxyFunc(rp)
+		}
 	}
 
 	// create a request queue with 2 consumer threads
 	q, _ := queue.New(
-		1, // Number of consumer threads
+		4, // Number of consumer threads
 		&queue.InMemoryQueueStorage{MaxSize: 1500000}, // Use default queue storage
 	)
 
 	visited := 1
 	skipped := 1
 	c.OnRequest(func(r *colly.Request) {
-		// log.Println("visiting", r.URL)
+		if debug {
+			log.Println("visiting", r.URL)
+		}
 		visited++
 	})
 
 	// Set error handler
 	c.OnError(func(r *colly.Response, err error) {
-		// fmt.Println("Request URL:", r.Request.URL, "failed with response:", r.StatusCode, "\nError:", err)
-		q.AddURL(r.Request.URL.String())
+		if debug {
+			log.Warnln("Request URL:", r.Request.URL, "failed with response:", r.StatusCode, "\nError:", err)
+		}
+		if r.StatusCode == 429 {
+			q.AddURL(r.Request.URL.String())
+		}
 	})
 
 	c.OnResponse(func(r *colly.Response) {
 		//if torProxy {
-		//	log.Printf("Proxy Address: %s\n", r.Request.ProxyURL)
-		//}
+		if debug && r.Request.ProxyURL != "" {
+			log.Printf("Proxy Address: %s\n", r.Request.ProxyURL)
+		}
 		// fmt.Println("r.Ctx.Get(\"url\")", r.Ctx.Get("url"))
 		currentPage := 1
 
 		// userInfo
-		// if strings.HasPrefix(r.Request.URL.String(), "https://hub.docker.com/v2/users") {
-		// }
+		/*
+			if strings.HasPrefix(r.Request.URL.String(), "https://hub.docker.com/v2/users") {
+				err = addToBadger("hub.docker.com/"+info.Username+"/"+info.Name+"//docker-user", dockerfile)
+				if err != nil {
+					log.Fatalln("error badger", err)
+				}
+			}
+		*/
 
 		// vcsInfo
 		// if strings.HasPrefix(r.Request.URL.String(), "https://hub.docker.com/api/build/v1/source/?image=") {
@@ -220,7 +234,6 @@ func searchDockerHub(filePath string) {
 				err = store.Update(func(txn *badger.Txn) error {
 					percentageLoss := count * 100 / skipped
 					log.Println("indexing [", count, " / ", skipped, " / ", visited, " / ", percentageLoss, "%] dockerfile to key:", image+"/dockerfile-content")
-					// log.Println("dockerfile: \n", dockerfile.Contents)
 					err := txn.Set([]byte("hub.docker.com/"+image+"/dockerfile-content"), []byte(dockerfile.Contents))
 					if err == nil {
 						count++
@@ -280,34 +293,30 @@ func searchDockerHub(filePath string) {
 		}
 
 		for currentPage <= lastPage {
-			// var res DockerResults
-			// err := json.Unmarshal(r.Body, &res)
 			if nil == err {
 				lastPage = res.LastPage
-				// fmt.Println(fmt.Sprintf("%s&page=%v", r.Request.URL, currentPage))
 				if !strings.Contains(r.Request.URL.String(), "page=") {
 					url := fmt.Sprintf("%s&page=%v", r.Request.URL, currentPage)
 					urlSanitized, err := sanitizeQuery(url)
 					if err != nil {
 						log.Fatalln("error urlSanitized", err)
 					}
+					if debug {
+						log.Println(fmt.Sprintf("queuing %s", urlSanitized))
+					}
 					q.AddURL(urlSanitized)
 				}
-				// c.Images = append(c.Images, res.Results...)
-				// c.Results = append(c.Results, res.Results...)
 			} else {
 				log.Println("error: ", string(r.Body))
 				log.Fatalln("error json", err)
 			}
 			currentPage++
 		}
-
-		// log.Printf("%s\n", bytes.Replace(r.Body, []byte("\n"), nil, -1))
 	})
 
 	for _, keyword := range shuffle(search.Keywords) {
 		// Add URLs to the queue
-		q.AddURL(fmt.Sprintf("https://index.docker.io/v1/search?q=%s&n=1000", keyword))
+		q.AddURL(fmt.Sprintf("https://index.docker.io/v1/search?q=%s&n=100", keyword))
 	}
 	// Consume URLs
 	q.Run(c)

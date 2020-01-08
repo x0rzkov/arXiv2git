@@ -70,7 +70,7 @@ func iterateStoreKV() {
 					// 	return err
 					// }
 					outputDir := fmt.Sprintf("%s", strings.Replace(string(k), "//dockerfile-content", "", -1))
-					outputDir = filepath.Join("..", "datasets", "hub.docker.com", outputDir)
+					outputDir = filepath.Join("..", "datasets", outputDir)
 					// fmt.Printf("key=%s, outputDir=%s, value=%s\n", k, outputDir, v)
 					fmt.Printf("key=%s, outputDir=%s\n", k, outputDir)
 					err := ensureDir(outputDir)

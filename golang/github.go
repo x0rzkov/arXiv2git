@@ -1,9 +1,9 @@
 package main
 
 import (
-	 "fmt"
-	"io"
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/go-github/v28/github"
@@ -13,6 +13,7 @@ import (
 func getTopics(client *github.Client, owner, name string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	waitForRemainingLimit(client, true, 10)
 	topics, _, err := client.Repositories.ListAllTopics(ctx, owner, name)
 	if err != nil {
 		return nil, err
@@ -23,6 +24,7 @@ func getTopics(client *github.Client, owner, name string) ([]string, error) {
 func getEntries(client *github.Client, owner, name, branch string, recursive bool) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	waitForRemainingLimit(client, true, 10)
 	tree, _, err := client.Git.GetTree(ctx, owner, name, branch, recursive)
 	if err != nil {
 		return nil, err
@@ -40,7 +42,7 @@ func getAllRepositories(client *github.Client, organization string) ([]*github.R
 		resp         = new(github.Response)
 		listOpts     = &github.RepositoryListByOrgOptions{"sources", github.ListOptions{PerPage: 100}}
 	)
-
+	waitForRemainingLimit(client, true, 10)
 	// Get all pages
 	resp.NextPage = 1
 	for resp.NextPage != 0 {
@@ -112,7 +114,7 @@ func pullRequestsByState(client *github.Client, owner string, repoName string, s
 		resp         = new(github.Response)
 		listOpts     = &github.PullRequestListOptions{state, "", "", "", "", github.ListOptions{PerPage: 100}}
 	)
-
+	waitForRemainingLimit(client, true, 10)
 	// Get all pages
 	resp.NextPage = 1
 	for resp.NextPage != 0 {
@@ -142,16 +144,27 @@ func buildExclusionList(excludedBranches []string, openPRs []*github.PullRequest
 }
 */
 
-func getFileContent(client *github.Client, owner, repoName, branch, path string) (io.ReadCloser, error) {
-	content, err := client.Repositories.DownloadContents(context.Background(), owner, repoName, path, &github.RepositoryContentGetOptions{Ref: branch})
+func getFileContent(client *github.Client, owner, repoName, branch, path string) (string, error) {
+	waitForRemainingLimit(client, true, 10)
+	content, _, resp, err := client.Repositories.GetContents(context.Background(), owner, repoName, path, &github.RepositoryContentGetOptions{Ref: branch})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return content, nil
+	if resp.StatusCode != 200 {
+		return "", errors.New("Bad response from Github: " + resp.Status)
+	}
+	if content == nil {
+		return "", err
+	}
+	decoded, err := content.GetContent()
+	if err != nil {
+		return "", err
+	}
+	return decoded, nil
 }
 
-
 func getReadme(client *github.Client, owner, repoName string) (string, error) {
+	waitForRemainingLimit(client, true, 10)
 	readme, _, err := client.Repositories.GetReadme(context.Background(), owner, repoName, nil)
 	if err != nil {
 		fmt.Println(err)
@@ -160,7 +173,7 @@ func getReadme(client *github.Client, owner, repoName string) (string, error) {
 	content, err := readme.GetContent()
 	if err != nil {
 		fmt.Println(err)
-		return "",err
+		return "", err
 	}
 	return content, nil
 }
@@ -171,7 +184,7 @@ func listBranches(client *github.Client, owner, repoName string) ([]string, erro
 		resp        = new(github.Response)
 		listOpts    = &github.ListOptions{PerPage: 100}
 	)
-
+	waitForRemainingLimit(client, true, 10)
 	// Get all pages
 	resp.NextPage = 1
 	for resp.NextPage != 0 {

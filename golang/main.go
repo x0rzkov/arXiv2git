@@ -32,6 +32,15 @@ import (
 	"gopkg.in/src-d/go-git.v4/storage/memory"
 )
 
+/*
+	Refs.
+	- https://github.com/x0rzkov/pighaxe
+    - https://github.com/x0rzkov/httpcache
+*/
+
+// go run *.go --token=$GITHUB_TOKEN --query="arxiv in:description,readme fork:false"
+// go run *.go --token=$GITHUB_TOKEN --query="arxiv in:description,readme fork:false" Dockerfile dockerfile .dockerfile -dockerfile
+
 var (
 	logLevelStr     string
 	configFile      string
@@ -62,8 +71,6 @@ var (
 	store           *badger.DB
 )
 
-// go run *.go --token=$GITHUB_TOKEN --query="arxiv in:description,readme fork:false"
-
 func init() {
 	log = &logrus.Logger{
 		Out: os.Stderr,
@@ -71,7 +78,6 @@ func init() {
 			DisableTimestamp: true,
 		},
 	}
-
 }
 
 func main() {
@@ -92,7 +98,7 @@ func main() {
 	pflag.StringVarP(&ghOrder, "gh-order", "", "desc", "github list option for the order direction of results")
 	pflag.IntVarP(&ghPerPage, "gh-per-page", "", 100, "github list option for the number of entries per page")
 	pflag.StringVarP(&ghSort, "gh-sort", "", "created", "github list option for the sorting filter")
-	pflag.IntVarP(&ghStartYear, "gh-year-start", "", 2007, "github search start year")
+	pflag.IntVarP(&ghStartYear, "gh-year-start", "", 2014, "github search start year")
 	pflag.IntVarP(&ghEndYear, "gh-year-end", "", 2020, "github search end year")
 	pflag.IntVarP(&parallelJobs, "parallel-jobs", "j", 10, "parallel jobs")
 	pflag.BoolVarP(&cloneRepo, "clone-repo", "", false, "clone repository in memory and find patterns in files")
@@ -101,8 +107,6 @@ func main() {
 	pflag.DurationVar(&httpTimeout, "http-timeout", 5*time.Second, "Timeout for HTTP Requests.")
 	pflag.Parse()
 	if help {
-		// args := pflag.Args()
-		// pp.Println("args", args)
 		pflag.PrintDefaults()
 		os.Exit(1)
 	}
@@ -139,6 +143,7 @@ func main() {
 	// os.Exit(1)
 	// iterateStoreKV()
 	// os.Exit(1)
+	// iterateStoreKV()
 	/*
 		counter, errors, err := countDockerfiles("../datasets")
 		if err != nil {
@@ -148,26 +153,29 @@ func main() {
 			pp.Println("dockerfiles errors: ", errors)
 		}
 	*/
-	searchDockerHub("search-terms.json")
-	iterateStoreKV()
+	searchDockerHub("search-vsoch.json")
 
 	// if len(args) == 0 {
 	//	log.Fatal("no patterns passed")
 	// }
 
-	// patternStr := strings.Join(args, " ")
-	patternStr := "Dockerfile*"
-	pattern, err := regexp.Compile(patternStr)
+	args := pflag.Args()
+	//if len(args) == 0 {
+	//	log.Fatal("no patterns passed")
+	//}
+
+	patternStr := strings.Join(args, " ")
+	patternRegexp, err := regexp.Compile(patternStr)
 	if err != nil {
 		log.Fatalf("Can not parse %q: %s", patternStr, err)
 	}
-	log.Infof("Pattern: %s", pattern)
+	log.Infof("patternRegexp: %s", patternRegexp)
 
 	header := []string{"repo", "file"}
-	if pattern.NumSubexp() == 0 {
+	if patternRegexp.NumSubexp() == 0 {
 		header = append(header, "line")
 	} else {
-		for i := 0; i < pattern.NumSubexp(); i++ {
+		for i := 0; i < patternRegexp.NumSubexp(); i++ {
 			header = append(header, fmt.Sprintf("group%d", i))
 		}
 	}
@@ -276,14 +284,13 @@ func main() {
 		Password: ghToken,
 	}
 
-	patterns := []string{"Dockerfile", "docker-compose.yml", "docker-sync.yml", "crane.yml"}
-
+	patterns := []string{"Dockerfile", "dockerfile", ".dockerfile", "-dockerfile"}
 	t = throttler.New(parallelJobs, len(reposSet))
 	c := 0
 	n := 0
 	for repoURL := range reposSet {
-		fmt.Println("repoURL", repoURL)
-		log.Infof("Searching: %s", repoURL)
+		// fmt.Println("repoURL", repoURL)
+		log.Infof("Scanning: %s", repoURL)
 		if info, err := vcsurl.Parse(repoURL); err == nil {
 			go func(repoURL, username, name string) error {
 				// Let Throttler know when the goroutine completes
@@ -297,19 +304,45 @@ func main() {
 				for _, branch := range branches {
 					entries, err := getEntries(client, info.Username, info.Name, branch, true)
 					if err != nil {
-						// log.Fatal(err)
 						return err
 					}
-					// pp.Println(entries)
+
+					// matches := matchPatternsRegexp(branch, entries, patternsRegexp...)
 					matches := matchPatterns(branch, entries, patterns...)
 					if len(matches) > 0 {
 						pp.Println(matches)
 						n = n + len(matches)
+
+						for _, match := range matches {
+							dockerfile, err := getFileContent(client, info.Username, info.Name, branch, match)
+							if err != nil {
+								log.Fatalln("error getFileContent", err)
+							}
+							branchStr := strings.Replace(branch, "/", "||", -1)
+							if dockerfile != "" {
+								err = addToBadger("github.com/"+info.Username+"/"+info.Name+"/"+branchStr+"/"+match+"//docker-content", dockerfile)
+								if err != nil {
+									log.Fatalln("error badger", err)
+								}
+							}
+						}
+
+						readme, _ := getReadme(client, info.Username, info.Name)
+						if readme != "" {
+							err = addToBadger("github.com/"+info.Username+"/"+info.Name+"//readme", readme)
+							if err != nil {
+								log.Fatalln("error badger", err)
+							}
+						}
+
+						topics, _ := getTopics(client, info.Username, info.Name)
+						if len(topics) > 0 {
+							err = addToBadger("github.com/"+info.Username+"/"+info.Name+"//topics", strings.Join(topics, ","))
+							if err != nil {
+								log.Fatalln("error badger", err)
+							}
+						}
 					}
-					readme, _ := getReadme(client, info.Username, info.Name)
-					fmt.Println(readme)
-					topics, _ := getTopics(client, info.Username, info.Name)
-					fmt.Println(topics)
 
 					writeOutput(output, repoURL)
 				}
@@ -318,7 +351,7 @@ func main() {
 			t.Throttle()
 		}
 		if cloneRepo {
-			if err := findInRepo(log.WithField("repo", repoURL), writeOutput(output, repoURL), repoURL, repoAuth, pattern); err != nil {
+			if err := findInRepo(log.WithField("repo", repoURL), writeOutput(output, repoURL), repoURL, repoAuth, patternRegexp); err != nil {
 				log.Warnf("Error in %q: %s", repoURL, err)
 			}
 		}
@@ -337,12 +370,38 @@ func main() {
 
 }
 
+func addToBadger(key, value string) error {
+	err := store.Update(func(txn *badger.Txn) error {
+		log.Println("indexing: ", key)
+		cnt, err := compress([]byte(value))
+		if err != nil {
+			return err
+		}
+		err = txn.Set([]byte(key), cnt)
+		return err
+	})
+	return err
+}
+
+func matchPatternsRegexp(branch string, list []string, patterns ...*regexp.Regexp) []string {
+	var matches []string
+	for _, entry := range list {
+		for _, pattern := range patterns {
+			if match := pattern.FindStringSubmatch(entry); match != nil {
+				matches = append(matches, entry)
+				// output(name, line, match)
+			}
+		}
+	}
+	return matches
+}
+
 func matchPatterns(branch string, list []string, patterns ...string) []string {
 	var matches []string
 	for _, entry := range list {
 		for _, pattern := range patterns {
 			if strings.HasSuffix(entry, pattern) {
-				matches = append(matches, branch+"::"+entry)
+				matches = append(matches, entry)
 			}
 		}
 	}
@@ -366,7 +425,6 @@ func sleepIfRateLimitExceeded(ctx context.Context, client *github.Client) {
 		fmt.Printf("Problem in getting rate limit information %v\n", err)
 		return
 	}
-
 	if rateLimit.Search.Remaining == 1 {
 		timeToSleep := rateLimit.Search.Reset.Sub(time.Now()) + time.Second
 		time.Sleep(timeToSleep)
@@ -377,7 +435,9 @@ func waitForRemainingLimit(cl *github.Client, isCore bool, minLimit int) {
 	for {
 		rateLimits, _, err := cl.RateLimits(context.Background())
 		if err != nil {
-			log.Printf("could not access rate limit information: %s\n", err)
+			if debug {
+				log.Printf("could not access rate limit information: %s\n", err)
+			}
 			<-time.After(time.Second * 1)
 			continue
 		}
@@ -393,11 +453,15 @@ func waitForRemainingLimit(cl *github.Client, isCore bool, minLimit int) {
 		}
 
 		if rate < minLimit {
-			log.Printf("Not enough rate limit: %d/%d/%d\n", rate, minLimit, limit)
+			if debug {
+				log.Printf("Not enough rate limit: %d/%d/%d\n", rate, minLimit, limit)
+			}
 			<-time.After(time.Second * 60)
 			continue
 		}
-		log.Printf("Rate limit: %d/%d\n", rate, limit)
+		if debug {
+			log.Printf("Rate limit: %d/%d\n", rate, limit)
+		}
 		break
 	}
 }
