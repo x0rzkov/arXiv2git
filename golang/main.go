@@ -38,6 +38,8 @@ import (
     - https://github.com/x0rzkov/httpcache
 */
 
+// go run *.go --config=x0rzkov.yml --debug
+// go run *.go --config=xorzkov.yml
 // go run *.go --token=$GITHUB_TOKEN --query="arxiv in:description,readme fork:false"
 // go run *.go --token=$GITHUB_TOKEN --query="arxiv in:description,readme fork:false" Dockerfile dockerfile .dockerfile -dockerfile
 
@@ -147,7 +149,19 @@ func main() {
 	// os.Exit(1)
 	// iterateStoreKV()
 
-	iterateStoreKV2()
+	// iterateStoreKV2()
+	/*
+		jsonBytes, err := dockerfileParser("../datasets/github.com/0xbug/Hawkeye/master/Dockerfile")
+		if err != nil {
+			log.Fatalln("dockerfileParser error: ", err)
+		}
+		log.Printf("jsonBytes: %s\n", yamlBytes)
+	*/
+
+	if configFile != "" {
+		loadConfigFile(configFile)
+		os.Exit(1)
+	}
 
 	countFiles := false
 	if countFiles {
@@ -160,9 +174,18 @@ func main() {
 		}
 	}
 
-	//	searchDockerHub("search-terms.json")
-	os.Exit(1)
-	searchDockerHub("search-vsoch.json")
+	// iterateStoreKV2("hub.docker.com", "//dockerfile-content")
+	iterateStore := true
+	if iterateStore {
+		err = iterateStoreKV2("github.com", "//docker-content")
+		if err != nil {
+			log.Fatalln("iterateStoreKV2 error: ", err)
+		}
+	}
+
+	searchDockerHub("search-terms.json")
+	// os.Exit(1)
+	// searchDockerHub("search-vsoch.json")
 
 	// if len(args) == 0 {
 	//	log.Fatal("no patterns passed")
@@ -327,9 +350,9 @@ func main() {
 							if err != nil {
 								log.Fatalln("error getFileContent", err)
 							}
-							branchStr := strings.Replace(branch, "/", "||", -1)
+							branchStr := strings.Replace(branch, "/", "___", -1)
 							if dockerfile != "" {
-								err = addToBadger("github.com/"+info.Username+"/"+info.Name+"/"+branchStr+"/"+match+"//docker-content", dockerfile)
+								err = addToBadger("github.com/"+info.Username+"/"+info.Name+"/"+branchStr+"/"+match+"//dockerfile-content", dockerfile)
 								if err != nil {
 									log.Fatalln("error badger", err)
 								}

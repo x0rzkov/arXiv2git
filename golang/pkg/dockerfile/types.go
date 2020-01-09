@@ -10,21 +10,21 @@ type Dockerfile struct {
 }
 
 type MetaArg struct {
-	instructions.ArgCommand `json:"-"`
-	Key                     string
-	DefaultValue            *string `json:","`
-	ProvidedValue           *string `json:","`
-	Value                   *string `json:","`
+	instructions.ArgCommand `json:"-" yaml:"-"`
+	Key                     string  `yaml:"-"`
+	DefaultValue            *string `json:"," yaml:","`
+	ProvidedValue           *string `json:"," yaml:","`
+	Value                   *string `json:"," yaml:","`
 }
 
 type From struct {
-	Stage   *FromStage `json:",omitempty"`
-	Scratch bool       `json:",omitempty"`
-	Image   *string    `json:",omitempty"`
+	Stage   *FromStage `json:",omitempty" yaml:",omitempty"`
+	Scratch bool       `json:",omitempty" yaml:",omitempty"`
+	Image   *string    `json:",omitempty" yaml:",omitempty"`
 }
 
 type FromStage struct {
-	Named *string `json:",omitempty"`
+	Named *string `json:",omitempty" yaml:",omitempty"`
 	Index int
 }
 
@@ -35,7 +35,7 @@ type Command struct {
 
 type Stage struct {
 	instructions.Stage
-	Name     *string `json:"As,omitempty"`
+	Name     *string `json:"As,omitempty" yaml:"as,omitempty"`
 	From     From
 	Commands []*Command
 }

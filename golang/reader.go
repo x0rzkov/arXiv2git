@@ -3,12 +3,17 @@ package main
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
 	badger "github.com/dgraph-io/badger"
 	"github.com/karrick/godirwalk"
 )
+
+func filenameWithoutExtension(fn string) string {
+	return strings.TrimSuffix(fn, path.Ext(fn))
+}
 
 func countDockerfiles(dirname string) (int, int, error) {
 	count := 0
@@ -19,9 +24,10 @@ func countDockerfiles(dirname string) (int, int, error) {
 				if debug {
 					log.Printf("%s %s\n", de.ModeType(), osPathname)
 				}
-				if osPathname != ".git" {
+				if osPathname != ".git" || strings.HasSuffix(osPathname, ".json") {
 					count++
 				}
+
 			}
 			return nil
 		},
@@ -57,24 +63,24 @@ func iterateStoreKeys() error {
 	return err
 }
 
-func iterateStoreKV2() error {
+func iterateStoreKV2(prefix, suffix string) error {
 	i := 0
 	err := store.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
-		prefix := []byte("github.com")
+		prefix := []byte(prefix)
 		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
 			item := it.Item()
 			k := item.Key()
 			err := item.Value(func(v []byte) error {
 				// log.Printf("key=%s\n", k)
-				if strings.HasSuffix(string(k), "//docker-content") {
+				if strings.HasSuffix(string(k), suffix) {
 					vx, err := decompress(v)
 					if err != nil {
 						return err
 					}
 
-					dir, filename := filepath.Split(strings.Replace(string(k), "//docker-content", "", -1))
+					dir, filename := filepath.Split(strings.Replace(string(k), suffix, "", -1))
 					log.Println("Dir:", dir)       //Dir: /some/path/to/remove/
 					log.Println("File:", filename) //File: ile.name
 
@@ -86,8 +92,8 @@ func iterateStoreKV2() error {
 					if err != nil {
 						return err
 					}
-
-					f, err := os.Create(outputDir + "/" + filename)
+					osPathname := outputDir + "/" + filename
+					f, err := os.Create(osPathname)
 					if err != nil {
 						return err
 					}
@@ -98,6 +104,30 @@ func iterateStoreKV2() error {
 					fmt.Printf("wrote %d bytes\n", bytes)
 					f.Sync()
 					f.Close()
+
+					jsonBytes, err := dockerfileParser(osPathname)
+					if err != nil {
+						return nil
+					}
+
+					// dir, filename := filepath.Split(osPathname)
+					// log.Println("Dir:", dir)       //Dir: /some/path/to/remove/
+					// log.Println("File:", filename) //File: ile.name
+
+					// outputDir := filepath.Join("..", "datasets", dir)
+
+					filename = filenameWithoutExtension(filename) + ".meta.json"
+					f2, err := os.Create(outputDir + "/" + filename)
+					if err != nil {
+						return err
+					}
+					bytes2, err := f2.Write(jsonBytes)
+					if err != nil {
+						return err
+					}
+					fmt.Printf("wrote %d bytes\n", bytes2)
+					f2.Sync()
+					f2.Close()
 
 				}
 				i++
@@ -124,15 +154,15 @@ func iterateStoreKV() {
 			k := item.Key()
 			err := item.Value(func(v []byte) error {
 				if strings.HasSuffix(string(k), "//dockerfile-content") {
-					// vStr, err := decompress(v)
-					// if err != nil {
-					// 	return err
-					// }
+					vx, err := decompress(v)
+					if err != nil {
+						return err
+					}
 					outputDir := fmt.Sprintf("%s", strings.Replace(string(k), "//dockerfile-content", "", -1))
 					outputDir = filepath.Join("..", "datasets", outputDir)
 					// fmt.Printf("key=%s, outputDir=%s, value=%s\n", k, outputDir, v)
 					fmt.Printf("key=%s, outputDir=%s\n", k, outputDir)
-					err := ensureDir(outputDir)
+					err = ensureDir(outputDir)
 					if err != nil {
 						return err
 					}
@@ -141,7 +171,7 @@ func iterateStoreKV() {
 					if err != nil {
 						return err
 					}
-					bytes, err := f.Write(v)
+					bytes, err := f.Write(vx)
 					if err != nil {
 						return err
 					}

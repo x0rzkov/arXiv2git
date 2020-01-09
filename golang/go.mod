@@ -15,6 +15,7 @@ require (
 	github.com/google/go-github/v28 v28.1.1
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79
+	github.com/jinzhu/configor v1.1.1 // indirect
 	github.com/josharian/impl v0.0.0-20191119165012-6b9658ad00c7 // indirect
 	github.com/k0kubun/colorstring v0.0.0-20150214042306-9440f1994b88 // indirect
 	github.com/k0kubun/pp v3.0.1+incompatible
@@ -32,6 +33,7 @@ require (
 	github.com/sourcegraph/go-vcsurl v0.0.0-20161114165620-2305ecca26ab // indirect
 	github.com/spf13/pflag v1.0.5
 	github.com/stamblerre/gocode v1.0.0 // indirect
+	github.com/x0rzkov/buildkit v0.6.4
 	github.com/x0rzkov/dockerfile-json v0.0.0-20200109073826-dbe702ce2211 // indirect
 	github.com/x0rzkov/go-vcsurl v1.0.1
 	github.com/x0rzkov/httpcache v0.0.0-20200108145149-5a6ae9c4c311 // indirect
@@ -44,4 +46,5 @@ require (
 	gopkg.in/sourcegraph/go-vcsurl.v1 v1.0.0-20131114132947-6b12603ea6fd // indirect
 	gopkg.in/src-d/go-billy.v4 v4.3.2
 	gopkg.in/src-d/go-git.v4 v4.13.1
+	gopkg.in/yaml.v3 v3.0.0-20191120175047-4206685974f2
 )

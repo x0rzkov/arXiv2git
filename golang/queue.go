@@ -136,6 +136,7 @@ func searchDockerHub(filePath string) {
 
 	// Instantiate default collector
 	c := colly.NewCollector(
+		colly.AllowURLRevisit(),
 		// Cache responses to prevent multiple download of pages
 		// even if the collector is restarted
 		colly.CacheDir("./data/cache"),
@@ -231,19 +232,13 @@ func searchDockerHub(filePath string) {
 			image := strings.Replace(r.Request.URL.String(), "https://hub.docker.com/v2/repositories/", "", -1)
 			image = strings.Replace(image, "dockerfile/", "", -1)
 			if dockerfile.Contents != "" {
-				err = store.Update(func(txn *badger.Txn) error {
-					percentageLoss := count * 100 / skipped
-					log.Println("indexing [", count, " / ", skipped, " / ", visited, " / ", percentageLoss, "%] dockerfile to key:", image+"/dockerfile-content")
-					err := txn.Set([]byte("hub.docker.com/"+image+"/dockerfile-content"), []byte(dockerfile.Contents))
-					if err == nil {
-						count++
-					}
-					return err
-				})
+				percentageLoss := count * 100 / skipped
+				log.Println("indexing [", count, " / ", skipped, " / ", visited, " / ", percentageLoss, "%] dockerfile to key:", image+"/dockerfile-content")
+				err = addToBadger("hub.docker.com/"+image+"/dockerfile-content", dockerfile.Contents)
 				if err != nil {
 					log.Fatalln("error badger", err)
 				}
-
+				count++
 				// user info
 				// https://hub.docker.com/v2/users/aaronshaf/
 				repoInfo := strings.Split(image, "/")
