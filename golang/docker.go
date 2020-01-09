@@ -1,8 +1,7 @@
 package main
 
-/*
 import (
-	//"github.com/x0rzkov/arXiv2git/golang/pkg/dockerfile"
+	// "github.com/x0rzkov/arXiv2git/golang/pkg/dockerfile"
 	// "github.com/codeskyblue/dockerignore"
 	// "github.com/docker-library/go-dockerlibrary/manifest"
 	// "github.com/novln/docker-parser"
@@ -10,13 +9,8 @@ import (
 	"github.com/x0rzkov/dockerfile-json/pkg/dockerfile" // interesting to json
 	// "github.com/yalp/jsonpath"
 )
-*/
 
-/*
-	Ref. https://github.com/x0rzkov/dockerfile-json/tree/master/pkg/dockerfile
-*/
-/*
-func dockerfileParser(contents ...string) ([]*dockerfile.Dockerfile, error) {
+func dockerfileParser(paths ...string) ([]*dockerfile.Dockerfile, error) {
 	var dockerfiles []*dockerfile.Dockerfile
 	for _, path := range paths {
 		dockerfile, err := dockerfile.Parse(path)
@@ -27,4 +21,3 @@ func dockerfileParser(contents ...string) ([]*dockerfile.Dockerfile, error) {
 	}
 	return dockerfiles, nil
 }
-*/

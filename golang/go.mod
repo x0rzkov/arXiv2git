@@ -32,6 +32,7 @@ require (
 	github.com/sourcegraph/go-vcsurl v0.0.0-20161114165620-2305ecca26ab // indirect
 	github.com/spf13/pflag v1.0.5
 	github.com/stamblerre/gocode v1.0.0 // indirect
+	github.com/x0rzkov/dockerfile-json v0.0.0-20200109073826-dbe702ce2211 // indirect
 	github.com/x0rzkov/go-vcsurl v1.0.1
 	github.com/x0rzkov/httpcache v0.0.0-20200108145149-5a6ae9c4c311 // indirect
 	github.com/zmb3/gogetdoc v0.0.0-20190228002656-b37376c5da6a // indirect

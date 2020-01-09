@@ -87,7 +87,7 @@ func iterateStoreKV2() error {
 						return err
 					}
 
-					f, err := os.Create(outputDir + filename)
+					f, err := os.Create(outputDir + "/" + filename)
 					if err != nil {
 						return err
 					}
