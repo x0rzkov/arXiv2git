@@ -2,12 +2,12 @@ package main
 
 /*
 import (
-	"github.com/x0rzkov/arXiv2git/golang/pkg/dockerfile"
+	//"github.com/x0rzkov/arXiv2git/golang/pkg/dockerfile"
 	// "github.com/codeskyblue/dockerignore"
- 	// "github.com/docker-library/go-dockerlibrary/manifest"
- 	// "github.com/novln/docker-parser"
- 	// "github.com/ansjin/docker-compose-file-parse"
- 	// "github.com/keilerkonzept/dockerfile-json/pkg/dockerfile" // interesting to json
+	// "github.com/docker-library/go-dockerlibrary/manifest"
+	// "github.com/novln/docker-parser"
+	// "github.com/ansjin/docker-compose-file-parse"
+	"github.com/x0rzkov/dockerfile-json/pkg/dockerfile" // interesting to json
 	// "github.com/yalp/jsonpath"
 )
 */
@@ -15,7 +15,6 @@ import (
 /*
 	Ref. https://github.com/x0rzkov/dockerfile-json/tree/master/pkg/dockerfile
 */
-
 /*
 func dockerfileParser(contents ...string) ([]*dockerfile.Dockerfile, error) {
 	var dockerfiles []*dockerfile.Dockerfile

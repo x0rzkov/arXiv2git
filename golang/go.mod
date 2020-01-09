@@ -12,7 +12,6 @@ require (
 	github.com/fortytw2/leaktest v1.3.0 // indirect
 	github.com/gocolly/colly/v2 v2.0.1
 	github.com/golang/snappy v0.0.1 // indirect
-	github.com/google/btree v1.0.0 // indirect
 	github.com/google/go-github/v28 v28.1.1
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79
@@ -26,16 +25,18 @@ require (
 	github.com/olekukonko/tablewriter v0.0.4 // indirect
 	github.com/olivere/elastic v6.2.27+incompatible // indirect
 	github.com/orcaman/concurrent-map v0.0.0-20190826125027-8c72a8bb44f6
-	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/rogpeppe/godef v1.1.1 // indirect
+	github.com/sethgrid/pester v0.0.0-20190127155807-68a33a018ad0 // indirect
 	github.com/sirupsen/logrus v1.4.2
+	github.com/sniperkit/cacher v0.0.0-20171213170759-61f2a1265daa // indirect
 	github.com/sourcegraph/go-vcsurl v0.0.0-20161114165620-2305ecca26ab // indirect
 	github.com/spf13/pflag v1.0.5
 	github.com/stamblerre/gocode v1.0.0 // indirect
 	github.com/x0rzkov/go-vcsurl v1.0.1
+	github.com/x0rzkov/httpcache v0.0.0-20200108145149-5a6ae9c4c311 // indirect
 	github.com/zmb3/gogetdoc v0.0.0-20190228002656-b37376c5da6a // indirect
 	golang.org/x/oauth2 v0.0.0-20191202225959-858c2ad4c8b6
-	golang.org/x/tools v0.0.0-20200107184032-11e9d9cc0042 // indirect
+	golang.org/x/tools v0.0.0-20200108203644-89082a384178 // indirect
 	gopkg.in/alecthomas/gometalinter.v1 v1.2.1 // indirect
 	gopkg.in/alecthomas/kingpin.v3-unstable v3.0.0-20191105091915-95d230a53780 // indirect
 	gopkg.in/olivere/elastic.v6 v6.2.27

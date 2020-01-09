@@ -14,14 +14,14 @@ import (
 
 	badger "github.com/dgraph-io/badger"
 	"github.com/google/go-github/v28/github"
-	"github.com/gregjones/httpcache"
-	"github.com/gregjones/httpcache/diskcache"
 	"github.com/k0kubun/pp"
 	"github.com/nozzle/throttler"
 	"github.com/orcaman/concurrent-map"
 	"github.com/sirupsen/logrus"
+	httpcache "github.com/sniperkit/cacher"
 	"github.com/spf13/pflag"
 	"github.com/x0rzkov/go-vcsurl"
+	"github.com/x0rzkov/httpcache/backend/diskcache"
 	"golang.org/x/oauth2"
 	"gopkg.in/olivere/elastic.v6"
 	"gopkg.in/src-d/go-billy.v4"
@@ -100,7 +100,7 @@ func main() {
 	pflag.StringVarP(&ghSort, "gh-sort", "", "created", "github list option for the sorting filter")
 	pflag.IntVarP(&ghStartYear, "gh-year-start", "", 2014, "github search start year")
 	pflag.IntVarP(&ghEndYear, "gh-year-end", "", 2020, "github search end year")
-	pflag.IntVarP(&parallelJobs, "parallel-jobs", "j", 10, "parallel jobs")
+	pflag.IntVarP(&parallelJobs, "parallel-jobs", "j", 8, "parallel jobs")
 	pflag.BoolVarP(&cloneRepo, "clone-repo", "", false, "clone repository in memory and find patterns in files")
 	pflag.BoolVarP(&debug, "debug", "d", false, "debug mode")
 	pflag.BoolVarP(&help, "help", "h", false, "help info")
@@ -143,17 +143,26 @@ func main() {
 	// os.Exit(1)
 	// iterateStoreKV()
 	// os.Exit(1)
+	// iterateStoreKV2()
+	// os.Exit(1)
 	// iterateStoreKV()
 
-	counter, errors, err := countDockerfiles("../datasets")
-	if err != nil {
-		log.Fatalf("Can not count: %s", err)
-	} else {
-		pp.Println("dockerfiles count: ", counter)
-		pp.Println("dockerfiles errors: ", errors)
+	iterateStoreKV2()
+
+	countFiles := false
+	if countFiles {
+		counter, errors, err := countDockerfiles("../datasets")
+		if err != nil {
+			log.Fatalf("Can not count: %s", err)
+		} else {
+			pp.Println("dockerfiles count: ", counter)
+			pp.Println("dockerfiles errors: ", errors)
+		}
 	}
 
-	searchDockerHub("search-terms.json")
+	//	searchDockerHub("search-terms.json")
+	os.Exit(1)
+	searchDockerHub("search-vsoch.json")
 
 	// if len(args) == 0 {
 	//	log.Fatal("no patterns passed")
