@@ -14,6 +14,7 @@ import (
 	// "github.com/k0kubun/pp"
 	"github.com/x0rzkov/arXiv2git/golang/pkg/dockerfile"
 	// "github.com/x0rzkov/dockerfile-json/pkg/dockerfile" // interesting to json
+	"github.com/ghodss/yaml"
 	"github.com/yalp/jsonpath"
 )
 
@@ -25,6 +26,13 @@ var dockerParserConfig struct {
 	JSONPathRaw    bool
 	BuildArgs      AssignmentsMap
 	NonzeroExit    bool
+}
+
+func check(err error) {
+	if err != nil {
+		log.Println(err)
+		// os.Exit(1)
+	}
 }
 
 func dockerfileParser(path string) ([]byte, error) {
@@ -39,7 +47,13 @@ func dockerfileParser(path string) ([]byte, error) {
 		//}
 	}
 	// pp.Println(dockerfile)
-	return json.MarshalIndent(dockerfile, "", "  ")
+	jsonBytes, err := json.MarshalIndent(dockerfile, "", "  ")
+	check(err)
+
+	yamlBytes, err := yaml.JSONToYAML(jsonBytes)
+	check(err)
+
+	return yamlBytes, err
 }
 
 func buildArgEnvExpander() dockerfile.SingleWordExpander {

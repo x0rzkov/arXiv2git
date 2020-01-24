@@ -5,24 +5,23 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
-	"net/http"
+	// "net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	badger "github.com/dgraph-io/badger"
-	"github.com/google/go-github/v28/github"
+	"github.com/google/go-github/v29/github"
 	"github.com/k0kubun/pp"
 	"github.com/nozzle/throttler"
 	"github.com/orcaman/concurrent-map"
 	"github.com/sirupsen/logrus"
-	httpcache "github.com/sniperkit/cacher"
 	"github.com/spf13/pflag"
+	ghclient "github.com/x0rzkov/arXiv2git/golang/pkg/client"
 	"github.com/x0rzkov/go-vcsurl"
-	"github.com/x0rzkov/httpcache/backend/diskcache"
-	"golang.org/x/oauth2"
 	"gopkg.in/olivere/elastic.v6"
 	"gopkg.in/src-d/go-billy.v4"
 	"gopkg.in/src-d/go-billy.v4/memfs"
@@ -32,16 +31,13 @@ import (
 	"gopkg.in/src-d/go-git.v4/storage/memory"
 )
 
-/*
-	Refs.
-	- https://github.com/x0rzkov/pighaxe
-    - https://github.com/x0rzkov/httpcache
-*/
-
+// go run *.go --query="arxiv in:description,readme fork:false" --config x0rzkov.yml
 // go run *.go --config=x0rzkov.yml --debug
 // go run *.go --config=xorzkov.yml
-// go run *.go --token=$GITHUB_TOKEN --query="arxiv in:description,readme fork:false"
-// go run *.go --token=$GITHUB_TOKEN --query="arxiv in:description,readme fork:false" Dockerfile dockerfile .dockerfile -dockerfile
+// go run *.go --query="alpine in:description,readme fork:false language:Dockerfile"
+// go run *.go --query="arxiv in:description,readme fork:false language:Dockerfile"
+// go run *.go --query="arxiv in:description,readme fork:false"
+// go run *.go --query="arxiv in:description,readme fork:false" Dockerfile dockerfile .dockerfile -dockerfile
 
 var (
 	logLevelStr     string
@@ -67,10 +63,16 @@ var (
 	cloneRepo       bool
 	debug           bool
 	help            bool
+	searchDockerhub bool
+	searchGithub    bool
 	httpTimeout     time.Duration
 	log             *logrus.Logger
 	esClient        *elastic.Client
 	store           *badger.DB
+	tokens          []string
+	clientManager   *ghclient.ClientManager
+	clientX         *ghclient.GHClient
+	config          *Config
 )
 
 func init() {
@@ -83,6 +85,8 @@ func init() {
 }
 
 func main() {
+	pflag.BoolVarP(&searchGithub, "search-github", "", false, "search github.com for Dockerfiles.")
+	pflag.BoolVarP(&searchDockerhub, "search-dockerhub", "", false, "search hub.docker.com for Dockerfiles.")
 	pflag.StringVarP(&logLevelStr, "log-level", "v", "info", "Logging level.")
 	pflag.StringVarP(&ghUsername, "username", "u", "x0rzkov", "Github username")
 	pflag.StringVarP(&ghToken, "token", "t", "", "Github personal token")
@@ -100,9 +104,9 @@ func main() {
 	pflag.StringVarP(&ghOrder, "gh-order", "", "desc", "github list option for the order direction of results")
 	pflag.IntVarP(&ghPerPage, "gh-per-page", "", 100, "github list option for the number of entries per page")
 	pflag.StringVarP(&ghSort, "gh-sort", "", "created", "github list option for the sorting filter")
-	pflag.IntVarP(&ghStartYear, "gh-year-start", "", 2014, "github search start year")
+	pflag.IntVarP(&ghStartYear, "gh-year-start", "", 2015, "github search start year")
 	pflag.IntVarP(&ghEndYear, "gh-year-end", "", 2020, "github search end year")
-	pflag.IntVarP(&parallelJobs, "parallel-jobs", "j", 8, "parallel jobs")
+	pflag.IntVarP(&parallelJobs, "parallel-jobs", "j", 6, "parallel jobs")
 	pflag.BoolVarP(&cloneRepo, "clone-repo", "", false, "clone repository in memory and find patterns in files")
 	pflag.BoolVarP(&debug, "debug", "d", false, "debug mode")
 	pflag.BoolVarP(&help, "help", "h", false, "help info")
@@ -159,8 +163,10 @@ func main() {
 	*/
 
 	if configFile != "" {
-		loadConfigFile(configFile)
-		os.Exit(1)
+		err := loadConfigFile(configFile)
+		if err != nil {
+			log.Fatalf("Can not count: %s", err)
+		}
 	}
 
 	countFiles := false
@@ -174,15 +180,18 @@ func main() {
 		}
 	}
 
+	iterateStoreKeys()
+
 	// iterateStoreKV2("hub.docker.com", "//dockerfile-content")
 	iterateStore := true
 	if iterateStore {
-		err = iterateStoreKV2("github.com", "//docker-content")
+		// err = iterateStoreKV2("github.com", "//dockerfile-content")
+		err = iterateStoreKV2("hub.docker.com", "//dockerfile-content")
 		if err != nil {
 			log.Fatalln("iterateStoreKV2 error: ", err)
 		}
 	}
-
+	// os.Exit(1)
 	searchDockerHub("search-terms.json")
 	// os.Exit(1)
 	// searchDockerHub("search-vsoch.json")
@@ -220,14 +229,23 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	clientManager = ghclient.NewManager(cachePath, config.Providers.Github.Tokens)
+	defer clientManager.Shutdown()
+	clientX = clientManager.Fetch()
+
+	pp.Println("clientManager: ", clientManager)
+
 	// Setup Github API client, with persistent caching
-	var (
-		cache          = diskcache.New(cachePath)
-		cacheTransport = httpcache.NewTransport(cache)
-		tokenSource    = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: ghToken})
-		authTransport  = oauth2.Transport{Source: tokenSource, Base: cacheTransport}
-		client         = github.NewClient(&http.Client{Transport: &authTransport})
-	)
+	/*
+		var (
+			cache          = diskcache.New(cachePath)
+			cacheTransport = httpcache.NewTransport(cache)
+			tokenSource    = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: ghToken})
+			authTransport  = oauth2.Transport{Source: tokenSource, Base: cacheTransport}
+			client         = github.NewClient(&http.Client{Transport: &authTransport})
+		)
+	*/
 
 	ctx := context.Background()
 
@@ -267,9 +285,9 @@ func main() {
 				defer t.Done(nil)
 				// time.Sleep(4 * time.Second)
 				// code, resp, err := client.Search.Code(ctx, query, searchOpt)
-				code, resp, err := client.Search.Repositories(ctx, q, searchOpt)
+				checkForRemainingLimit(false, 1)
+				code, resp, err := clientX.Client.Search.Repositories(ctx, q, searchOpt)
 				// sleepIfRateLimitExceeded(ctx, client)
-				waitForRemainingLimit(client, false, 10)
 				if err != nil {
 					return err
 				}
@@ -278,7 +296,6 @@ func main() {
 				if debug {
 					log.Println("visiting", resp.Request.URL.String())
 				}
-				// log.Println("lastPage: ", resp.LastPage, "nextPage: ", resp.NextPage, "currentPage", currentPage, "lastPage", lastPage)
 				// for _, cr := range code.CodeResults {
 				for _, cr := range code.Repositories {
 					repoURL := *cr.HTMLURL
@@ -295,9 +312,9 @@ func main() {
 				// Go to the next page
 				return nil
 			}(q)
-			// Wait for all HTTP fetches to complete.
-			t.Throttle()
 		}
+		// Wait for all HTTP fetches to complete.
+		t.Throttle()
 		searchOpt.Page = 1
 		currentPage = 1
 		lastPage = 1
@@ -320,6 +337,7 @@ func main() {
 	t = throttler.New(parallelJobs, len(reposSet))
 	c := 0
 	n := 0
+
 	for repoURL := range reposSet {
 		// fmt.Println("repoURL", repoURL)
 		log.Infof("Scanning: %s", repoURL)
@@ -328,15 +346,26 @@ func main() {
 				// Let Throttler know when the goroutine completes
 				// so it can dispatch another worker
 				defer t.Done(nil)
-				branches, err := listBranches(client, username, name)
+
+				if info.Username == "x0rzkov" || info.Username == "vsoch" {
+					return nil
+				}
+
+				checkForRemainingLimit(true, 10)
+
+				// branches, err := listBranches(client, username, name)
+				branches, err := listBranches2(username, name)
+				pp.Println("branches....", branches)
 				if err != nil {
-					// log.Fatal(err)
+					log.Warnln(err)
 					return err
 				}
 				for _, branch := range branches {
-					entries, err := getEntries(client, info.Username, info.Name, branch, true)
+					// entries, err := getEntries(client, info.Username, info.Name, branch, true)
+					entries, err := getEntries2(info.Username, info.Name, branch, true)
 					if err != nil {
-						return err
+						log.Warnln(err)
+						continue
 					}
 
 					// matches := matchPatternsRegexp(branch, entries, patternsRegexp...)
@@ -346,7 +375,8 @@ func main() {
 						n = n + len(matches)
 
 						for _, match := range matches {
-							dockerfile, err := getFileContent(client, info.Username, info.Name, branch, match)
+							// dockerfile, err := getFileContent(client, info.Username, info.Name, branch, match)
+							dockerfile, err := getFileContent2(info.Username, info.Name, branch, match)
 							if err != nil {
 								log.Fatalln("error getFileContent", err)
 							}
@@ -358,25 +388,31 @@ func main() {
 								}
 							}
 						}
-
-						readme, _ := getReadme(client, info.Username, info.Name)
-						if readme != "" {
-							err = addToBadger("github.com/"+info.Username+"/"+info.Name+"//readme", readme)
-							if err != nil {
-								log.Fatalln("error badger", err)
-							}
-						}
-
-						topics, _ := getTopics(client, info.Username, info.Name)
-						if len(topics) > 0 {
-							err = addToBadger("github.com/"+info.Username+"/"+info.Name+"//topics", strings.Join(topics, ","))
-							if err != nil {
-								log.Fatalln("error badger", err)
-							}
-						}
 					}
-
 					writeOutput(output, repoURL)
+				}
+				// readme, _ := getReadme(client, info.Username, info.Name)
+				readme, _ := getReadme2(info.Username, info.Name)
+				if readme != "" {
+					err = addToBadger("github.com/"+info.Username+"/"+info.Name+"//readme", readme)
+					if err != nil {
+						log.Fatalln("error badger", err)
+					}
+				}
+				// topics, _ := getTopics(client, info.Username, info.Name)
+				topics, _ := getTopics2(info.Username, info.Name)
+				if len(topics) > 0 {
+					err = addToBadger("github.com/"+info.Username+"/"+info.Name+"//topics", strings.Join(topics, ","))
+					if err != nil {
+						log.Fatalln("error badger", err)
+					}
+				}
+				languages, _ := getLanguages2(info.Username, info.Name)
+				if len(languages) > 0 {
+					err = addToBadger("github.com/"+info.Username+"/"+info.Name+"//languages", strings.Join(languages, ","))
+					if err != nil {
+						log.Fatalln("error badger", err)
+					}
 				}
 				return nil
 			}(repoURL, info.Username, info.Name)
@@ -461,6 +497,61 @@ func sleepIfRateLimitExceeded(ctx context.Context, client *github.Client) {
 		timeToSleep := rateLimit.Search.Reset.Sub(time.Now()) + time.Second
 		time.Sleep(timeToSleep)
 	}
+}
+
+func checkForRemainingLimit(isCore bool, minLimit int) {
+
+	var (
+		wg    sync.WaitGroup
+		limit int
+		rate  int
+		// clientX *ghclient.GHClient
+	)
+
+getRate:
+	rateLimits, resp, err := clientX.Client.RateLimits(context.Background())
+	if err != nil {
+		if debug {
+			log.Printf("could not access rate limit information: %s\n", err)
+		}
+		goto changeClient
+	}
+
+	if isCore {
+		rate = rateLimits.GetCore().Remaining
+		limit = rateLimits.GetCore().Limit
+	} else {
+		rate = rateLimits.GetSearch().Remaining
+		limit = rateLimits.GetSearch().Limit
+	}
+
+	if rate < minLimit {
+		if debug {
+			log.Printf("Not enough rate limit: %d/%d/%d\n", rate, minLimit, limit)
+		}
+		<-time.After(time.Second * 10)
+		goto changeClient
+	}
+
+	if debug {
+		log.Printf("Rate limit: %d/%d\n", rate, limit)
+	}
+	return
+
+changeClient:
+	{
+		log.Warnln("checkForRemainingLimit.changeClient...")
+		go func() {
+			wg.Add(1)
+			defer wg.Done()
+			log.Warnln("checkForRemainingLimit.ghclient.Reclaim...")
+			ghclient.Reclaim(clientX, resp)
+		}()
+		log.Warnln("checkForRemainingLimit.clientManager.Fetch...")
+		clientX = clientManager.Fetch()
+		goto getRate
+	}
+
 }
 
 func waitForRemainingLimit(cl *github.Client, isCore bool, minLimit int) {

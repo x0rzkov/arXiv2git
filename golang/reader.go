@@ -6,9 +6,12 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	// "sync"
 
 	badger "github.com/dgraph-io/badger"
 	"github.com/karrick/godirwalk"
+	"github.com/nozzle/throttler"
+	"github.com/pkg/errors"
 )
 
 func filenameWithoutExtension(fn string) string {
@@ -24,7 +27,7 @@ func countDockerfiles(dirname string) (int, int, error) {
 				if debug {
 					log.Printf("%s %s\n", de.ModeType(), osPathname)
 				}
-				if osPathname != ".git" || strings.HasSuffix(osPathname, ".json") {
+				if osPathname != ".git" || strings.HasSuffix(osPathname, ".json") || strings.HasSuffix(osPathname, ".yaml") {
 					count++
 				}
 
@@ -53,7 +56,7 @@ func iterateStoreKeys() error {
 			item := it.Item()
 			k := item.Key()
 			if strings.HasSuffix(string(k), "/dockerfile-content") {
-				fmt.Printf("key=%s\n", k)
+				fmt.Printf("i=%d key=%s\n", i, k)
 				i++
 			}
 		}
@@ -63,78 +66,122 @@ func iterateStoreKeys() error {
 	return err
 }
 
+func writeDockerFile(k, v []byte) {
+
+}
+
+func writeDockerMeta(k, v []byte) {
+
+}
+
 func iterateStoreKV2(prefix, suffix string) error {
 	i := 0
 	err := store.View(func(txn *badger.Txn) error {
-		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		it := txn.NewIterator(badger.IteratorOptions{
+			PrefetchValues: true,
+			PrefetchSize:   1000,
+			Reverse:        false,
+			AllVersions:    false,
+		})
 		defer it.Close()
 		prefix := []byte(prefix)
+
+		// waitGroup := &sync.WaitGroup{}
+		// waitGroup.Add(1000)
+		t := throttler.New(200, 1000000)
+
 		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
 			item := it.Item()
 			k := item.Key()
 			err := item.Value(func(v []byte) error {
-				// log.Printf("key=%s\n", k)
+				log.Printf("i=%d key=%s hasSuffix=%t\n", i, k, strings.HasSuffix(string(k), suffix))
 				if strings.HasSuffix(string(k), suffix) {
 					vx, err := decompress(v)
 					if err != nil {
 						return err
 					}
 
-					dir, filename := filepath.Split(strings.Replace(string(k), suffix, "", -1))
-					log.Println("Dir:", dir)       //Dir: /some/path/to/remove/
-					log.Println("File:", filename) //File: ile.name
+					go func(k, vx []byte) error {
+						// defer waitGroup.Done()
+						defer t.Done(nil)
+						// write dockerfile
+						var dir, filename string
+						if string(prefix) == "hub.docker.com" {
+							dir = strings.Replace(string(k), suffix, "", -1)
+							filename = "Dockerfile"
+						} else {
+							dir, filename = filepath.Split(strings.Replace(string(k), suffix, "", -1))
+						}
+						if debug {
+							log.Println("Dir:", dir)       //Dir: /some/path/to/remove/
+							log.Println("File:", filename) //File: ile.name
+						}
+						outputDir := filepath.Join("..", "datasets", dir)
 
-					outputDir := filepath.Join("..", "datasets", dir)
+						if debug {
+							log.Printf("key=%s, outputDir=%s filename=%s\n", k, outputDir, filename)
+						}
+						err = ensureDir(outputDir)
+						if err != nil {
+							return errors.Wrap(err, "ensureDir")
+						}
+						osPathname := outputDir + "/" + filename
+						f, err := os.Create(osPathname)
+						if err != nil {
+							return errors.Wrap(err, "Create.osPathname")
+						}
+						bytes, err := f.Write(vx)
+						if err != nil {
+							return errors.Wrap(err, "Write.osPathname")
+						}
+						if debug {
+							log.Printf("wrote %d bytes\n", bytes)
+						}
+						f.Sync()
+						f.Close()
 
-					// fmt.Printf("key=%s, outputDir=%s, value=%s\n", k, outputDir, v)
-					log.Printf("key=%s, outputDir=%s filename=%s\n", k, outputDir, filename)
-					err = ensureDir(outputDir)
-					if err != nil {
-						return err
-					}
-					osPathname := outputDir + "/" + filename
-					f, err := os.Create(osPathname)
-					if err != nil {
-						return err
-					}
-					bytes, err := f.Write(vx)
-					if err != nil {
-						return err
-					}
-					fmt.Printf("wrote %d bytes\n", bytes)
-					f.Sync()
-					f.Close()
+						isDockerfileParser := true
+						if isDockerfileParser {
+							jsonBytes, err := dockerfileParser(osPathname)
+							if err != nil {
+								return nil
+							}
 
-					jsonBytes, err := dockerfileParser(osPathname)
-					if err != nil {
+							// write dockerfile metafile
+							filename = filenameWithoutExtension(filename) + ".meta.yaml"
+							f2, err := os.Create(outputDir + "/" + filename)
+							if err != nil {
+								return errors.Wrap(err, "Create.meta")
+							}
+							bytes2, err := f2.Write(jsonBytes)
+							if err != nil {
+								return errors.Wrap(err, "Write.meta")
+							}
+							if debug {
+								log.Printf("wrote %d bytes2\n", bytes2)
+							}
+							f2.Sync()
+							f2.Close()
+						}
 						return nil
-					}
+					}(k, vx)
+					// index into elasticsearch
 
-					// dir, filename := filepath.Split(osPathname)
-					// log.Println("Dir:", dir)       //Dir: /some/path/to/remove/
-					// log.Println("File:", filename) //File: ile.name
-
-					// outputDir := filepath.Join("..", "datasets", dir)
-
-					filename = filenameWithoutExtension(filename) + ".meta.json"
-					f2, err := os.Create(outputDir + "/" + filename)
-					if err != nil {
-						return err
-					}
-					bytes2, err := f2.Write(jsonBytes)
-					if err != nil {
-						return err
-					}
-					fmt.Printf("wrote %d bytes\n", bytes2)
-					f2.Sync()
-					f2.Close()
-
+					i++
 				}
-				i++
+				t.Throttle()
+				// waitGroup.Wait()
 				return nil
 			})
 			if err != nil {
 				return err
+			}
+			if t.Err() != nil {
+				// Loop through the errors to see the details
+				for i, err := range t.Errs() {
+					log.Printf("error #%d: %s", i, err)
+				}
+				log.Fatal(t.Err())
 			}
 		}
 		return nil

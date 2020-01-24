@@ -7,7 +7,9 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
 
+	"github.com/corpix/uarand"
 	badger "github.com/dgraph-io/badger"
 	"github.com/dyninc/qstring"
 	"github.com/gocolly/colly/v2"
@@ -112,8 +114,21 @@ type DockerBuildObject struct {
 	UUID          string   `json:"uuid"`
 }
 
+func unique(stringSlice []string) []string {
+	keys := make(map[string]bool)
+	list := []string{}
+	for _, entry := range stringSlice {
+		if _, value := keys[entry]; !value {
+			keys[entry] = true
+			list = append(list, entry)
+		}
+	}
+	return list
+}
+
 func searchDockerHub(filePath string) {
 
+	var ops uint64
 	count := 1
 	// Open our jsonFile
 	// filePath := "search-terms.json"
@@ -134,8 +149,11 @@ func searchDockerHub(filePath string) {
 		log.Fatalf("cannot unmarshal data: %v\n", err)
 	}
 
+	search.Keywords = unique(search.Keywords)
+
 	// Instantiate default collector
 	c := colly.NewCollector(
+		colly.UserAgent(uarand.GetRandom()),
 		colly.AllowURLRevisit(),
 		// Cache responses to prevent multiple download of pages
 		// even if the collector is restarted
@@ -178,7 +196,7 @@ func searchDockerHub(filePath string) {
 
 	// create a request queue with 2 consumer threads
 	q, _ := queue.New(
-		4, // Number of consumer threads
+		64, // Number of consumer threads
 		&queue.InMemoryQueueStorage{MaxSize: 1500000}, // Use default queue storage
 	)
 
@@ -233,12 +251,13 @@ func searchDockerHub(filePath string) {
 			image = strings.Replace(image, "dockerfile/", "", -1)
 			if dockerfile.Contents != "" {
 				percentageLoss := count * 100 / skipped
-				log.Println("indexing [", count, " / ", skipped, " / ", visited, " / ", percentageLoss, "%] dockerfile to key:", image+"/dockerfile-content")
+				log.Println("indexing [", count, " / ", ops, " / ", skipped, " / ", visited, " / ", percentageLoss, "%] dockerfile to key:", image+"/dockerfile-content")
 				err = addToBadger("hub.docker.com/"+image+"/dockerfile-content", dockerfile.Contents)
 				if err != nil {
 					log.Fatalln("error badger", err)
 				}
 				count++
+				atomic.AddUint64(&ops, 1)
 				// user info
 				// https://hub.docker.com/v2/users/aaronshaf/
 				repoInfo := strings.Split(image, "/")
@@ -278,6 +297,8 @@ func searchDockerHub(filePath string) {
 				if err != nil {
 					return err
 				}
+				// note: missing prefix key
+				// err = txn.Set([]byte("hub.docker.com/" + result.Name), cnt)
 				err = txn.Set([]byte(result.Name), cnt)
 				return err
 			})
@@ -311,6 +332,7 @@ func searchDockerHub(filePath string) {
 
 	for _, keyword := range shuffle(search.Keywords) {
 		// Add URLs to the queue
+		keyword = strings.Replace(keyword, " ", "%20", -1)
 		q.AddURL(fmt.Sprintf("https://index.docker.io/v1/search?q=%s&n=100", keyword))
 	}
 	// Consume URLs
