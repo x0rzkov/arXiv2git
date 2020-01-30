@@ -28,11 +28,11 @@ func fetchGlobalTopics(topic string) ([]string, error) {
 		e       *github.AbuseRateLimitError
 	)
 	log.Println("fetchGlobalTopics, topic=", topic)
-	// topics, _, err := clientX.Client.Search.Topics(context.Background(), topic, nil)
+	// topics, _, err := clientGH.Client.Search.Topics(context.Background(), topic, nil)
 
 getGlobalTopics:
 	checkForRemainingLimit(false, 10)
-	topics, resp, err := clientX.Client.Search.Topics(ctx, topic, nil /*&github.SearchOptions{}*/)
+	topics, resp, err := clientGH.Client.Search.Topics(ctx, topic, nil /*&github.SearchOptions{}*/)
 	if err != nil {
 		if _, ok = err.(*github.RateLimitError); ok {
 			log.Error("fetchGlobalTopics hit limit error, it's time to change client.", zap.Error(err))
@@ -65,9 +65,9 @@ changeClient:
 		go func() {
 			wg.Add(1)
 			defer wg.Done()
-			ghclient.Reclaim(clientX, resp)
+			ghclient.Reclaim(clientGH, resp)
 		}()
-		clientX = clientManager.Fetch()
+		clientGH = clientManager.Fetch()
 		goto getGlobalTopics
 	}
 	pp.Println("results: ", results)
@@ -101,7 +101,7 @@ func getTopics2(owner, name string) ([]string, error) {
 
 getTopics:
 	checkForRemainingLimit(true, 10)
-	topics, resp, err := clientX.Client.Repositories.ListAllTopics(ctx, owner, name)
+	topics, resp, err := clientGH.Client.Repositories.ListAllTopics(ctx, owner, name)
 	if err != nil {
 		if _, ok = err.(*github.RateLimitError); ok {
 			log.Error("getTopics hit limit error, it's time to change client.", zap.Error(err))
@@ -130,9 +130,9 @@ changeClient:
 		go func() {
 			wg.Add(1)
 			defer wg.Done()
-			ghclient.Reclaim(clientX, resp)
+			ghclient.Reclaim(clientGH, resp)
 		}()
-		clientX = clientManager.Fetch()
+		clientGH = clientManager.Fetch()
 		goto getTopics
 	}
 	pp.Println("topics: ", topics)
@@ -154,7 +154,7 @@ func getLanguages2(owner, name string) ([]string, error) {
 
 getLanguages:
 	checkForRemainingLimit(true, 10)
-	langs, resp, err := clientX.Client.Repositories.ListLanguages(ctx, owner, name)
+	langs, resp, err := clientGH.Client.Repositories.ListLanguages(ctx, owner, name)
 	if err != nil {
 		if _, ok = err.(*github.RateLimitError); ok {
 			log.Error("getTopics hit limit error, it's time to change client.", zap.Error(err))
@@ -186,9 +186,9 @@ changeClient:
 		go func() {
 			wg.Add(1)
 			defer wg.Done()
-			ghclient.Reclaim(clientX, resp)
+			ghclient.Reclaim(clientGH, resp)
 		}()
-		clientX = clientManager.Fetch()
+		clientGH = clientManager.Fetch()
 		goto getLanguages
 	}
 
@@ -229,7 +229,7 @@ func getEntries2(owner, name, branch string, recursive bool) ([]string, error) {
 
 getFiles:
 	checkForRemainingLimit(true, 10)
-	tree, resp, err := clientX.Client.Git.GetTree(ctx, owner, name, branch, recursive)
+	tree, resp, err := clientGH.Client.Git.GetTree(ctx, owner, name, branch, recursive)
 	if err != nil {
 		if _, ok = err.(*github.RateLimitError); ok {
 			log.Error("getEntries hit limit error, it's time to change client.", zap.Error(err))
@@ -261,9 +261,9 @@ changeClient:
 		go func() {
 			wg.Add(1)
 			defer wg.Done()
-			ghclient.Reclaim(clientX, resp)
+			ghclient.Reclaim(clientGH, resp)
 		}()
-		clientX = clientManager.Fetch()
+		clientGH = clientManager.Fetch()
 		goto getFiles
 	}
 
@@ -304,7 +304,7 @@ func getFileContent2(owner, repoName, branch, path string) (string, error) {
 
 getFile:
 	checkForRemainingLimit(true, 10)
-	content, _, resp, err := clientX.Client.Repositories.GetContents(ctx, owner, repoName, path, &github.RepositoryContentGetOptions{Ref: branch})
+	content, _, resp, err := clientGH.Client.Repositories.GetContents(ctx, owner, repoName, path, &github.RepositoryContentGetOptions{Ref: branch})
 	if err != nil {
 		if _, ok = err.(*github.RateLimitError); ok {
 			log.Error("getEntries hit limit error, it's time to change client.", zap.Error(err))
@@ -343,9 +343,9 @@ changeClient:
 		go func() {
 			wg.Add(1)
 			defer wg.Done()
-			ghclient.Reclaim(clientX, resp)
+			ghclient.Reclaim(clientGH, resp)
 		}()
-		clientX = clientManager.Fetch()
+		clientGH = clientManager.Fetch()
 		goto getFile
 	}
 
@@ -384,7 +384,7 @@ func getReadme2(owner, repoName string) (string, error) {
 
 getReadme:
 	checkForRemainingLimit(true, 10)
-	readme, resp, err := clientX.Client.Repositories.GetReadme(ctx, owner, repoName, nil)
+	readme, resp, err := clientGH.Client.Repositories.GetReadme(ctx, owner, repoName, nil)
 	if err != nil {
 		if _, ok = err.(*github.RateLimitError); ok {
 			log.Error("getEntries hit limit error, it's time to change client.", zap.Error(err))
@@ -418,9 +418,9 @@ changeClient:
 		go func() {
 			wg.Add(1)
 			defer wg.Done()
-			ghclient.Reclaim(clientX, resp)
+			ghclient.Reclaim(clientGH, resp)
 		}()
-		clientX = clientManager.Fetch()
+		clientGH = clientManager.Fetch()
 		goto getReadme
 	}
 	return content, nil
@@ -485,7 +485,7 @@ getBranch:
 	for resp.NextPage != 0 {
 		listOpts.Page = resp.NextPage
 		checkForRemainingLimit(true, 10)
-		fetched, newResp, err := clientX.Client.Repositories.ListBranches(ctx, owner, repoName, listOpts)
+		fetched, newResp, err := clientGH.Client.Repositories.ListBranches(ctx, owner, repoName, listOpts)
 		resp = newResp
 		if err != nil {
 			if _, ok = err.(*github.RateLimitError); ok {
@@ -520,9 +520,9 @@ changeClient:
 		go func() {
 			wg.Add(1)
 			defer wg.Done()
-			ghclient.Reclaim(clientX, resp)
+			ghclient.Reclaim(clientGH, resp)
 		}()
-		clientX = clientManager.Fetch()
+		clientGH = clientManager.Fetch()
 		goto getBranch
 	}
 

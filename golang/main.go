@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
-	// "net/http"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,7 +17,7 @@ import (
 	"github.com/google/go-github/v29/github"
 	"github.com/k0kubun/pp"
 	"github.com/nozzle/throttler"
-	"github.com/orcaman/concurrent-map"
+	// "github.com/orcaman/concurrent-map"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	ghclient "github.com/x0rzkov/arXiv2git/golang/pkg/client"
@@ -71,7 +71,7 @@ var (
 	store           *badger.DB
 	tokens          []string
 	clientManager   *ghclient.ClientManager
-	clientX         *ghclient.GHClient
+	clientGH        *ghclient.GHClient
 	config          *Config
 )
 
@@ -93,7 +93,7 @@ func main() {
 	pflag.StringVarP(&query, "query", "q", "", "query")
 	pflag.StringVarP(&pattern, "pattern", "p", "", "pattern (eg. Dockerfile)")
 	pflag.StringVarP(&configFile, "config", "c", "x0rzkov.yml", "config file path")
-	pflag.StringVarP(&cachePath, "cache-path", "", "./data/cache", "cache path")
+	pflag.StringVarP(&cachePath, "cache-path", "", "./data/cache2", "cache path")
 	pflag.StringVarP(&storagePath, "storage-path", "s", "./data/storage", "storage path")
 	pflag.StringVarP(&outputPath, "output-path", "o", "../../dockerfiles-search", "output path for dockerfiles")
 	pflag.StringVarP(&prefixPath, "prefix-path", "", "hub.docker.com", "prefix path for dockerfiles")
@@ -180,10 +180,10 @@ func main() {
 		}
 	}
 
-	iterateStoreKeys()
+	// iterateStoreKeys()
 
 	// iterateStoreKV2("hub.docker.com", "//dockerfile-content")
-	iterateStore := true
+	iterateStore := false
 	if iterateStore {
 		// err = iterateStoreKV2("github.com", "//dockerfile-content")
 		err = iterateStoreKV2("hub.docker.com", "//dockerfile-content")
@@ -192,7 +192,7 @@ func main() {
 		}
 	}
 	// os.Exit(1)
-	searchDockerHub("search-terms.json")
+	// searchDockerHub("search-terms.json") // long list
 	// os.Exit(1)
 	// searchDockerHub("search-vsoch.json")
 
@@ -232,20 +232,7 @@ func main() {
 
 	clientManager = ghclient.NewManager(cachePath, config.Providers.Github.Tokens)
 	defer clientManager.Shutdown()
-	clientX = clientManager.Fetch()
-
-	pp.Println("clientManager: ", clientManager)
-
-	// Setup Github API client, with persistent caching
-	/*
-		var (
-			cache          = diskcache.New(cachePath)
-			cacheTransport = httpcache.NewTransport(cache)
-			tokenSource    = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: ghToken})
-			authTransport  = oauth2.Transport{Source: tokenSource, Base: cacheTransport}
-			client         = github.NewClient(&http.Client{Transport: &authTransport})
-		)
-	*/
+	clientGH = clientManager.Fetch()
 
 	ctx := context.Background()
 
@@ -259,7 +246,7 @@ func main() {
 
 	// Create a new map.
 
-	m := cmap.New()
+	// m := cmap.New()
 	reposSet := make(map[string]struct{})
 
 	queries := generateDateRange(query, ghStartYear, ghEndYear)
@@ -267,7 +254,7 @@ func main() {
 		pp.Println(queries)
 	}
 
-	t := throttler.New(1, 10000000)
+	t := throttler.New(1, 100000)
 
 	for _, q := range queries {
 		if debug {
@@ -286,8 +273,11 @@ func main() {
 				// time.Sleep(4 * time.Second)
 				// code, resp, err := client.Search.Code(ctx, query, searchOpt)
 				checkForRemainingLimit(false, 1)
-				code, resp, err := clientX.Client.Search.Repositories(ctx, q, searchOpt)
+				// pp.Println(q)
+				pp.Println(searchOpt)
+				result, resp, err := clientGH.Client.Search.Repositories(ctx, q, searchOpt)
 				// sleepIfRateLimitExceeded(ctx, client)
+				// pp.Println("resp.StatusCode=", resp.StatusCode)
 				if err != nil {
 					return err
 				}
@@ -297,24 +287,29 @@ func main() {
 					log.Println("visiting", resp.Request.URL.String())
 				}
 				// for _, cr := range code.CodeResults {
-				for _, cr := range code.Repositories {
+				for _, cr := range result.Repositories {
 					repoURL := *cr.HTMLURL
 					if _, ok := reposSet[repoURL]; !ok {
 						reposSet[repoURL] = struct{}{}
-						m.Set(repoURL, struct{}{})
+						// m.Set(repoURL, struct{}{})
 					}
 				}
 				currentPage++
 				if resp.LastPage == 0 {
 					return nil
 				}
-				searchOpt.Page = resp.NextPage
+				searchOpt.Page = currentPage
+				// searchOpt.Page = resp.NextPage
+				// pp.Println(searchOpt)
 				// Go to the next page
 				return nil
 			}(q)
+
+			// Wait for all HTTP fetches to complete.
+			t.Throttle()
+
 		}
-		// Wait for all HTTP fetches to complete.
-		t.Throttle()
+
 		searchOpt.Page = 1
 		currentPage = 1
 		lastPage = 1
@@ -334,7 +329,7 @@ func main() {
 	}
 
 	patterns := []string{"Dockerfile", "dockerfile", ".dockerfile", "-dockerfile"}
-	t = throttler.New(parallelJobs, len(reposSet))
+	t = throttler.New(1, len(reposSet))
 	c := 0
 	n := 0
 
@@ -499,20 +494,31 @@ func sleepIfRateLimitExceeded(ctx context.Context, client *github.Client) {
 	}
 }
 
+// range specification, note that min <= max
+type IntRange struct {
+	min, max int
+}
+
+// get next random value within the interval including min and max
+func (ir *IntRange) NextRandom(r *rand.Rand) int {
+	return r.Intn(ir.max-ir.min+1) + ir.min
+}
+
 func checkForRemainingLimit(isCore bool, minLimit int) {
 
 	var (
-		wg    sync.WaitGroup
-		limit int
-		rate  int
-		// clientX *ghclient.GHClient
+		wg          sync.WaitGroup
+		limit, rate int
 	)
 
+	log.Printf("checkForRemainingLimit, isCore=%t, minLimit=%d ", isCore, minLimit)
+
 getRate:
-	rateLimits, resp, err := clientX.Client.RateLimits(context.Background())
+	log.Println("checkForRemainingLimit.rateLimits")
+	rateLimits, resp, err := clientGH.Client.RateLimits(context.Background())
 	if err != nil {
 		if debug {
-			log.Printf("could not access rate limit information: %s\n", err)
+			log.Warnf("could not access rate limit information: %s\n", err)
 		}
 		goto changeClient
 	}
@@ -525,11 +531,15 @@ getRate:
 		limit = rateLimits.GetSearch().Limit
 	}
 
+	log.Printf("checkForRemainingLimit, rate=%d, limit=%d, minLimit=%d ", rate, limit, minLimit)
+
 	if rate < minLimit {
 		if debug {
 			log.Printf("Not enough rate limit: %d/%d/%d\n", rate, minLimit, limit)
 		}
-		<-time.After(time.Second * 10)
+		r := rand.New(rand.NewSource(55))
+		ir := IntRange{10, 60}
+		<-time.After(time.Second * time.Duration(ir.NextRandom(r)))
 		goto changeClient
 	}
 
@@ -545,10 +555,10 @@ changeClient:
 			wg.Add(1)
 			defer wg.Done()
 			log.Warnln("checkForRemainingLimit.ghclient.Reclaim...")
-			ghclient.Reclaim(clientX, resp)
+			ghclient.Reclaim(clientGH, resp)
 		}()
 		log.Warnln("checkForRemainingLimit.clientManager.Fetch...")
-		clientX = clientManager.Fetch()
+		clientGH = clientManager.Fetch()
 		goto getRate
 	}
 

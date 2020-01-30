@@ -106,7 +106,7 @@ func NewManager(cachePath string, tokens []string) *ClientManager {
 		}
 	}()
 
-	// pp.Println(cm)
+	pp.Println(cm)
 	return cm
 }
 
@@ -153,7 +153,7 @@ func (c *GHClient) init(cachePath string, tokenSource oauth2.TokenSource) bool {
 	// pp.Println(ghClient)
 
 	if !c.isValidToken(httpClient) {
-		log.Fatalln("isValidToken: ", c.isValidToken(httpClient))
+		log.Fatalln("isInValidToken: ", c.isValidToken(httpClient))
 		return false
 	}
 
@@ -277,7 +277,7 @@ func (cm *ClientManager) start() {
 
 // Fetch fetch a valid client.
 func (cm *ClientManager) Fetch() *GHClient {
-	// log.Warnln("Fetch...", cm.Dispatch)
+	log.Warnln("Fetch...", cm.Dispatch)
 	return <-cm.Dispatch
 }
 

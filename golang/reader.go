@@ -110,13 +110,14 @@ func iterateStoreKV2(prefix, suffix string) error {
 							dir = strings.Replace(string(k), suffix, "", -1)
 							filename = "Dockerfile"
 						} else {
+							// github.com
 							dir, filename = filepath.Split(strings.Replace(string(k), suffix, "", -1))
 						}
 						if debug {
 							log.Println("Dir:", dir)       //Dir: /some/path/to/remove/
 							log.Println("File:", filename) //File: ile.name
 						}
-						outputDir := filepath.Join("..", "datasets", dir)
+						outputDir := filepath.Join("..", "..", "dockerfiles-search", dir)
 
 						if debug {
 							log.Printf("key=%s, outputDir=%s filename=%s\n", k, outputDir, filename)

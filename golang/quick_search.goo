@@ -1,0 +1,134 @@
+package main
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/google/go-github/v29/github"
+	"github.com/k0kubun/pp"
+	"github.com/nozzle/throttler"
+	log "github.com/sirupsen/logrus"
+	ghclient "github.com/x0rzkov/arXiv2git/golang/pkg/client"
+)
+
+var (
+	clientManager *ghclient.ClientManager
+	clientX       *ghclient.GHClient
+)
+
+func main() {
+
+	debug := true
+	query := "arxiv in:description,readme fork:false"
+
+	ghToken := "cf2d2faec1052757fcfe47d4a8c86fef40256b9f"
+	cachePath := "data/cache2"
+
+	clientManager = ghclient.NewManager(cachePath, []string{ghToken})
+	defer clientManager.Shutdown()
+	clientX = clientManager.Fetch()
+
+	pp.Println("clientManager: ", clientManager)
+
+	queries := generateDateRange(query, 2017, 2020)
+	if debug {
+		pp.Println(queries)
+	}
+
+	ctx := context.Background()
+	reposSet := make(map[string]struct{})
+	searchOpt := &github.SearchOptions{
+		Sort:  "created",
+		Order: "desc",
+		ListOptions: github.ListOptions{
+			PerPage: 100,
+			Page:    1,
+		},
+	}
+
+	t := throttler.New(4, 100)
+
+	for _, q := range queries {
+		if debug {
+			log.Println("query:", q)
+		}
+		currentPage := 1
+		lastPage := 1
+
+		for currentPage <= lastPage {
+			// Increment the WaitGroup counter.
+			// wg.Add(1)
+			go func(q string) error {
+				// Let Throttler know when the goroutine completes
+				// so it can dispatch another worker
+				defer t.Done(nil)
+				// time.Sleep(4 * time.Second)
+				// code, resp, err := client.Search.Code(ctx, query, searchOpt)
+				// checkForRemainingLimit(false, 1)
+				// pp.Println(q)
+				pp.Println(searchOpt)
+				result, resp, err := clientX.Client.Search.Repositories(ctx, q, searchOpt)
+				// sleepIfRateLimitExceeded(ctx, client)
+				// pp.Println("resp.StatusCode=", resp.StatusCode)
+				if err != nil {
+					return err
+				}
+
+				lastPage = resp.LastPage
+				if debug {
+					log.Println("visiting", resp.Request.URL.String())
+				}
+				// for _, cr := range code.CodeResults {
+				for _, cr := range result.Repositories {
+					repoURL := *cr.HTMLURL
+					if _, ok := reposSet[repoURL]; !ok {
+						reposSet[repoURL] = struct{}{}
+						// m.Set(repoURL, struct{}{})
+					}
+				}
+				currentPage++
+				if resp.LastPage == 0 {
+					return nil
+				}
+				searchOpt.Page = currentPage
+				// pp.Println(resp.LastPage)
+				// pp.Println(resp.NextPage)
+				// Go to the next page
+				return nil
+			}(q)
+
+			// Wait for all HTTP fetches to complete.
+			t.Throttle()
+
+		}
+
+		searchOpt.Page = 1
+		currentPage = 1
+		lastPage = 1
+	}
+
+	if t.Err() != nil {
+		// Loop through the errors to see the details
+		for i, err := range t.Errs() {
+			log.Printf("error #%d: %s", i, err)
+		}
+		log.Fatal(t.Err())
+	}
+
+	/*
+		// client := github.NewClient(nil)
+		searchRes, _, err := clientX.Client.Search.Repositories(context.Background(), "arxiv in:description,readme fork:false created:2020-01-01..2020-12-31", searchOpt)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(searchRes.GetTotal())
+	*/
+}
+
+func generateDateRange(query string, startYear, endYear int) (queries []string) {
+	for curYear := endYear; curYear >= startYear; curYear-- {
+		dateRange := fmt.Sprintf("created:%d-01-01..%d-12-31", curYear, curYear)
+		queries = append(queries, fmt.Sprintf("%s %s", query, dateRange))
+	}
+	return
+}
